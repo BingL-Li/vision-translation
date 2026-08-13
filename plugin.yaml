@@ -1,0 +1,7 @@
+name: vision-translation
+version: 0.1.0
+description: "Translation with Visual Primitives — Hermes native vision bridge: structured image parsing -> visual primitives (bbox) + spatial relations + OCR, injected as <vision-context> text for text-only main models. Model-agnostic: works with any auxiliary VLM."
+author: "Binglun Li (BingL-Li)"
+enabled: true
+tools:
+  - vision_translate
