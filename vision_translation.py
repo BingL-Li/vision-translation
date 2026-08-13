@@ -1,23 +1,27 @@
 """
-Vision Bridge (Fancy) — 核心纯函数库
-=====================================
-图片 -> 辅助 VLM 结构化 JSON -> canonical visual primitives (norm-1000 xyxy)
-     -> 程序化空间关系 -> <vision-context> 文本
+Translation with Visual Primitives — import-pure core library
+=============================================================
+image -> auxiliary VLM structured JSON -> canonical visual primitives
+    (norm-1000 xyxy) -> programmatic spatial relations -> <vision-context> text
 
-设计约束（供插件与本 demo 共用）：
-- 导入零副作用：无 argparse / 无网络 / 无 print
-- 不嵌套调用 DeepSeek —— 只生成 <vision-context>，由主模型推理
-- grounding 诚实标注：mimo-v2.5 是 prompted 模型
-- 结果带硬上限，primitives/relations 优先，prose 可裁
-依赖：标准库 urllib（Pillow 可选，缩放用）
-Key：进程环境变量 OPENROUTER_API_KEY（由 Hermes / 调用方加载）
+Design constraints (shared by the plugin and the CLI demo):
+- Zero side effects at import: no argparse, no network, no prints.
+- No nested text-LLM call: this module only produces <vision-context>;
+  the main model does the reasoning.
+- Honest grounding: the auxiliary VLM is prompted to emit boxes
+  (grounding: prompted), not a native detector.
+- Hard output caps: primitives/relations survive budget trimming, prose is cut.
+Dependencies: stdlib urllib only (Pillow optional, used for downscaling).
+Key: OPENROUTER_API_KEY from the process environment (loaded by Hermes/caller).
 """
+
 from __future__ import annotations
 
 import base64
 import io
 import itertools
 import json
+import math
 import mimetypes
 import os
 import time
@@ -26,35 +30,35 @@ import urllib.request
 from typing import Any, Dict, List, Optional
 
 OR_BASE = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_VLM_MODEL = "xiaomi/mimo-v2.5"      # 当前 verified 的辅助视觉模型
-MAX_EDGE = 1568                              # VLM 长边上限（缩放，防超 token）
-REQUEST_TIMEOUT = 60                         # 工具上下文收紧到 60s
-RETRIES = 2                                  # 网络重试
-# 结果硬上限（字符）：primitives/relations 优先，超限裁 prose 不裁坐标
+DEFAULT_VLM_MODEL = "xiaomi/mimo-v2.5"      # verified auxiliary vision model
+MAX_EDGE = 1568                              # VLM long-edge cap (downscale guard)
+REQUEST_TIMEOUT = 60                         # tool context tightened to 60s
+RETRIES = 2                                  # network retries
+# Hard result cap (chars): primitives/relations first, prose trimmed last.
 RESULT_BUDGET = 2000
-# 每张 note 最多保留的 primitive 数（对齐 OpenHanako 16 上限的稳妥值）
+# Max primitives kept per image (deliberately conservative, aligned with 16)
 MAX_PRIMITIVES = 16
-# 坐标契约：norm-1000 xyxy（与 Fancy 方案一致）
+# Coordinate contract: image space normalized to 1000x1000.
 COORD = "norm-1000"
 BOX_ORDER = "xyxy"
-GROUNDING = "prompted"   # 诚实标注：mimo-v2.5 是被 prompt 逼出坐标，非原生 grounding
+GROUNDING = "prompted"   # honest: mimo-v2.5 is prompted for boxes, not native
 
 
 # --------------------------------------------------------------------------- #
-# 图片 -> data URL
+# image -> data URL
 # --------------------------------------------------------------------------- #
 def image_to_data_url(path: str, max_edge: int = MAX_EDGE) -> str:
     if not os.path.isfile(path):
-        raise FileNotFoundError(f"图片不存在: {path}")
+        raise FileNotFoundError(f"image not found: {path}")
     mime = mimetypes.guess_type(path)[0] or "image/jpeg"
     with open(path, "rb") as f:
         data = f.read()
     if not data:
-        raise ValueError(f"图片为空: {path}")
+        raise ValueError(f"empty image: {path}")
     try:
         from PIL import Image, ImageOps
         img = Image.open(io.BytesIO(data))
-        img = ImageOps.exif_transpose(img)   # 应用 EXIF 方向（竖拍不横）
+        img = ImageOps.exif_transpose(img)   # honor EXIF orientation
         img = img.convert("RGB")
         w, h = img.size
         scale = min(1.0, max_edge / max(w, h))
@@ -65,18 +69,18 @@ def image_to_data_url(path: str, max_edge: int = MAX_EDGE) -> str:
         data = buf.getvalue()
         mime = "image/jpeg"
     except Exception:
-        pass  # 无 Pillow 也允许原样发送
+        pass  # Pillow optional: send the original bytes as-is
     b64 = base64.b64encode(data).decode("ascii")
     return f"data:{mime};base64,{b64}"
 
 
 # --------------------------------------------------------------------------- #
-# OpenRouter 调用（纯 stdlib，重试 + 退避）
+# OpenRouter call (pure stdlib, retries + backoff)
 # --------------------------------------------------------------------------- #
 def _call(model: str, messages: list, *, json_mode: bool = False, retries: int = RETRIES) -> dict:
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
-        raise RuntimeError("缺少 OPENROUTER_API_KEY 环境变量")
+        raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -98,7 +102,12 @@ def _call(model: str, messages: list, *, json_mode: bool = False, retries: int =
     if isinstance(last_err, urllib.error.HTTPError):
         body = last_err.read().decode("utf-8", "replace")
         raise RuntimeError(f"OpenRouter HTTP {last_err.code}: {body[:300]}")
-    raise RuntimeError(f"调用失败: {last_err}")
+    raise RuntimeError(f"OpenRouter call failed: {last_err}")
+
+
+def complete_text(model: str, messages: list) -> dict:
+    """Public chat-completion wrapper (CLI/demo use). Returns the raw response dict."""
+    return _call(model, messages)
 
 
 def _extract_text(resp: dict) -> str:
@@ -106,6 +115,11 @@ def _extract_text(resp: dict) -> str:
         return resp["choices"][0]["message"]["content"] or ""
     except Exception:
         return ""
+
+
+def extract_text(resp: dict) -> str:
+    """Public accessor: pull the assistant text out of a completion response."""
+    return _extract_text(resp)
 
 
 _EMPTY_CTX = {
@@ -116,10 +130,10 @@ _EMPTY_CTX = {
 
 
 # --------------------------------------------------------------------------- #
-# Fancy 核心：结构解析 + 归一化 + 关系 + 渲染
+# Core: tolerant parsing, normalization, relations, rendering
 # --------------------------------------------------------------------------- #
 def parse_json_tolerant(raw: str) -> dict:
-    """剥 JSON fence + 容错解析。失败返回空 dict。"""
+    """Strip JSON fences and parse tolerantly. Returns {} on failure."""
     raw = (raw or "").strip()
     if raw.startswith("```"):
         raw = raw.strip("`")
@@ -137,12 +151,12 @@ def parse_json_tolerant(raw: str) -> dict:
     return {}
 
 
-def normalize_bbox(obj: dict) -> Optional[List[int]]:
-    """只做契约内 round/clamp：假定已按 norm-1000 xyxy 返回。
+def normalize_bbox(obj: dict, warnings: Optional[List[str]] = None) -> Optional[List[int]]:
+    """Validate/clamp a box against the norm-1000 xyxy contract.
 
-    不做 magnitude 启发式（此前 W/H=0 使像素分支成死代码、≤10 会误丢小框）。
-    契约化的方式：VLM 生成 prompt 明确要求 0-1000 xyxy，这里只校验。
-    拒绝零面积/越界校正。
+    Contract-based (not heuristic): the VLM prompt demands 0-1000 xyxy; here we
+    only validate. Out-of-contract values are clamped (with an optional warning
+    recorded into ``warnings``); zero-area / non-finite boxes are dropped.
     """
     b = obj.get("bbox") or obj.get("box") or obj.get("coordinates") or obj.get("xyxy")
     if not b:
@@ -153,19 +167,30 @@ def normalize_bbox(obj: dict) -> Optional[List[int]]:
         x1, y1, x2, y2 = [float(v) for v in (b[0], b[1], b[2], b[3])]
     except (TypeError, ValueError, IndexError, KeyError):
         return None
-    if any(v is None or (isinstance(v, float) and v != v) for v in (x1, y1, x2, y2)):
+    if not all(math.isfinite(v) for v in (x1, y1, x2, y2)):
         return None
+    raw = (x1, y1, x2, y2)
     x1, x2 = min(x1, x2), max(x1, x2)
     y1, y2 = min(y1, y2), max(y1, y2)
-    x1, y1 = max(0.0, min(1000.0, x1)), max(0.0, min(1000.0, y1))
-    x2, y2 = max(0.0, min(1000.0, x2)), max(0.0, min(1000.0, y2))
     if x2 - x1 < 0.5 or y2 - y1 < 0.5:
-        return None
-    return [round(x1), round(y1), round(x2), round(y2)]
+        return None  # zero-area box
+    if warnings is not None:
+        outside = [v for v in raw if v < 0 or v > 1000]
+        if outside:
+            warnings.append(
+                f"bbox {[round(v, 1) for v in raw]} outside norm-1000 contract "
+                f"(possible pixel-space output from the VLM)"
+            )
+    return [
+        round(max(0.0, min(1000.0, x1))), round(max(0.0, min(1000.0, y1))),
+        round(max(0.0, min(1000.0, x2))), round(max(0.0, min(1000.0, y2))),
+    ]
 
 
-def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES) -> List[dict]:
-    """把 VLM 结构化 objects 转成 canonical primitives，按 confidence 排序截断。"""
+def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES,
+                     warnings: Optional[List[str]] = None) -> List[dict]:
+    """Turn VLM structured objects into canonical primitives, sorted by
+    confidence and truncated to ``max_objects``."""
     primitives: List[dict] = []
     objs = vlm_json.get("objects") or vlm_json.get("entities") or vlm_json.get("visual_primitives") or []
     if not isinstance(objs, list):
@@ -174,7 +199,7 @@ def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES) -> List[
         if not isinstance(o, dict):
             continue
         label = o.get("label") or o.get("name") or o.get("ref") or o.get("class") or f"obj{i}"
-        box = normalize_bbox(o)
+        box = normalize_bbox(o, warnings=warnings)
         if box is None:
             continue
         try:
@@ -186,7 +211,6 @@ def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES) -> List[
             "id": f"v{i + 1}", "label": str(label)[:96], "box": box,
             "confidence": conf, "grounding": GROUNDING,
         })
-    # confidence 降序 + 截断
     primitives.sort(key=lambda p: p["confidence"], reverse=True)
     return primitives[:max_objects]
 
@@ -211,7 +235,7 @@ def _iou(a: List[int], b: List[int]) -> float:
 
 
 def _containment(a: List[int], b: List[int]) -> float:
-    """A 被 B 包含的比例 intersection(A,B)/area(A)。"""
+    """Fraction of A that lies inside B: intersection(A,B) / area(A)."""
     inter = _intersection(a, b)
     if not inter or _area(a) <= 0:
         return 0.0
@@ -222,14 +246,15 @@ EPS = 20  # norm-1000 units
 
 
 def derive_spatial_relations(prims: List[dict]) -> List[dict]:
-    """纯程序化几何关系，source=geometry，去重、防矛盾。"""
+    """Pure geometric relations, source=geometry; deduped and contradiction-free
+    by construction (directional predicates only fire when strictly separated)."""
     rels: List[dict] = []
     ids = [p["id"] for p in prims]
     idx = {p["id"]: p for p in prims}
     seen = set()
 
     def add(subject, predicate, object, source="geometry", confidence=1.0):
-        # 方向无关谓词（overlaps）去重：alphabetical 排序做键
+        # Direction-agnostic predicates (overlaps) dedupe on a sorted key.
         key = tuple(sorted([subject, object])) if predicate == "overlaps" else (subject, predicate, object)
         if key in seen:
             return
@@ -241,7 +266,7 @@ def derive_spatial_relations(prims: List[dict]) -> List[dict]:
         A, B = idx[a]["box"], idx[b]["box"]
         if not A or not B:
             continue
-        # 横向 / 纵向（仅当严格分离时）
+        # Horizontal / vertical (only when strictly separated)
         if A[2] + EPS < B[0]:
             add(a, "left_of", b)
         elif B[2] + EPS < A[0]:
@@ -250,7 +275,7 @@ def derive_spatial_relations(prims: List[dict]) -> List[dict]:
             add(a, "above", b)
         elif B[3] + EPS < A[1]:
             add(a, "below", b)
-        # 包含（方向正确：A inside B 当 A 大部分落在 B 内）
+        # Containment (direction-aware: A inside B when A mostly falls in B)
         ca = _containment(A, B)
         cb = _containment(B, A)
         if ca >= 0.90:
@@ -262,16 +287,11 @@ def derive_spatial_relations(prims: List[dict]) -> List[dict]:
     return rels
 
 
-def _clip_to_budget(text: str, budget: int) -> str:
-    """按字符预算截断，尾部加提示。"""
-    if len(text) <= budget:
-        return text
-    return text[: max(0, budget - 10)] + "…[截断]"
-
-
 def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
-                          question: str = "", budget: int = RESULT_BUDGET) -> str:
-    """生成 <vision-context>。primitives/relations 优先，prose 可裁。"""
+                          question: str = "", budget: int = RESULT_BUDGET,
+                          warnings: Optional[List[str]] = None) -> str:
+    """Render <vision-context>. Primitives/relations are protected; prose and
+    warnings are the first to be trimmed when over budget."""
     note = (vlm_json.get("summary") or "").strip()
     scene = (vlm_json.get("scene") or "").strip()
     ocr = vlm_json.get("ocr") or vlm_json.get("visible_text") or []
@@ -279,7 +299,7 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
         ocr = [ocr]
     ocr_str = "; ".join(str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in ocr)
 
-    # 1) primitives / relations（优先保留，单独算预算）
+    # 1) primitives / relations (always kept; budgeted separately)
     prim_block = ""
     if prims:
         lines = [f'<visual-primitives coord="{COORD}" box_order="{BOX_ORDER}" grounding="{GROUNDING}">']
@@ -296,7 +316,7 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
         lines.append("</visual-relations>")
         rel_block = "\n".join(lines)
 
-    # 2) prose（可裁）
+    # 2) prose + warnings (trimmed first)
     prose_lines = []
     if note:
         prose_lines.append(f"image_1: {note}")
@@ -304,9 +324,11 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
         prose_lines.append(f"scene: {scene}")
     if ocr_str:
         prose_lines.append(f"visible_text: {ocr_str}")
+    if warnings:
+        prose_lines.append("vision_warnings: " + "; ".join(warnings))
     prose = "\n".join(prose_lines)
 
-    # 3) 组装：primitives/relations 前置且保底，prose 最后（可裁）
+    # 3) assemble: primitives/relations up front and protected, prose last
     core = "\n".join(x for x in [prim_block, rel_block] if x)
     body_lines = []
     if core:
@@ -317,21 +339,20 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
         body_lines.append(f"user_request: {question}")
     body = "\n".join(body_lines)
 
-    # 若整体超预算，优先裁 prose（primitives/relations 已在其前方）
+    # Over budget: keep primitives/relations, trim the trailing prose part.
     if len(body) > budget:
-        # primitives/relations 固定保留，只裁后半 prose
         header = core
         trail = "\n\n".join(x for x in [prose, f"user_request: {question}"] if x)
         keep = max(0, budget - len(header) - 3)
-        trail = trail[:keep] + "…[截断]"
+        trail = trail[:keep] + "…[truncated]"
         body = "\n\n".join(x for x in [header, trail] if x)
 
     return f"<vision-context>\n{body}\n</vision-context>"
 
 
 # --------------------------------------------------------------------------- #
-# 主入口：analyze(path, question=None) -> <vision-context> 文本
-# 失败 raise（调用方决定降级策略）。
+# Main entry: analyze(path, question=None) -> <vision-context> text
+# Raises on failure (the caller decides the fallback strategy).
 # --------------------------------------------------------------------------- #
 def analyze(image_path: str, question: str = "", model: str = DEFAULT_VLM_MODEL,
             max_objects: int = MAX_PRIMITIVES) -> str:
@@ -365,8 +386,12 @@ def analyze(image_path: str, question: str = "", model: str = DEFAULT_VLM_MODEL,
             break
         vlm_json = {}
     if not (vlm_json.get("summary") or vlm_json.get("objects")):
-        raise RuntimeError("VLM 连续 3 次返回非法 JSON —— fail-closed：未看到图片，不注入空上下文")
+        raise RuntimeError(
+            "VLM returned invalid JSON 3 times — fail-closed: refusing to "
+            "inject an empty or fabricated context"
+        )
 
-    prims = build_primitives(vlm_json, max_objects=max_objects)
+    warnings: List[str] = []
+    prims = build_primitives(vlm_json, max_objects=max_objects, warnings=warnings)
     rels = derive_spatial_relations(prims)
-    return render_vision_context(vlm_json, prims, rels, question=question)
+    return render_vision_context(vlm_json, prims, rels, question=question, warnings=warnings)

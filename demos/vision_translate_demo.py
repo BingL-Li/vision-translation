@@ -41,14 +41,14 @@ def _load_env_key(name: str) -> str:
 def main() -> int:
     args = sys.argv[1:]
     if not args:
-        print(f"用法: {sys.argv[0]} <图片路径> [\"问题\"]", file=sys.stderr)
+        print(f"usage: {sys.argv[0]} <image_path> [\"question\"]", file=sys.stderr)
         return 2
     image_path = args[0]
     question = " ".join(args[1:]) if len(args) > 1 else "识别这张图片"
 
     api_key = _load_env_key("OPENROUTER_API_KEY")
     if not api_key:
-        print("❌ 缺少 OPENROUTER_API_KEY（环境变量或 ~/.hermes/.env）", file=sys.stderr)
+        print("missing OPENROUTER_API_KEY (env or ~/.hermes/.env)", file=sys.stderr)
         return 2
     os.environ.setdefault("OPENROUTER_API_KEY", api_key)
 
@@ -69,8 +69,8 @@ def main() -> int:
         )},
         {"role": "user", "content": f"{ctx}\n\nUser question: {question}"},
     ]
-    resp = vt._call(TEXT_MODEL, messages)
-    print(f"【LLM answer】\n{vt._extract_text(resp)}")
+    resp = vt.complete_text(TEXT_MODEL, messages)
+    print(f"【LLM answer】\n{vt.extract_text(resp)}")
     usage = resp.get("usage", {})
     print(f"\n(usage in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')})")
     return 0
@@ -80,5 +80,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as e:
-        print(f"❌ 运行失败: {e}", file=sys.stderr)
+        print(f"run failed: {e}", file=sys.stderr)
         sys.exit(1)

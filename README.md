@@ -111,6 +111,14 @@ override with `VISION_TRANSLATE_TEXT`) to show the full pipeline.
   (directional predicates only fire when boxes are strictly separated).
 - **Budget**: results are hard-capped (`RESULT_BUDGET=2000` chars);
   primitives/relations survive, prose is trimmed.
+- **Out-of-contract detection**: if the VLM returns boxes outside the
+  `norm-1000` range (e.g. raw pixel coordinates), they are clamped and a
+  `vision_warnings:` line is emitted into the context so the main model knows
+  the numbers may be unreliable.
+- **Cost note**: the fail-closed path can spend up to 3 full image-bearing VLM
+  calls before giving up (each retry re-sends the image). This is deliberate —
+  a wrong context is worse than an explicit `unavailable` — but be aware that
+  a failing VLM is not cheap.
 - **Security**: images are sent to the configured OpenRouter VLM only. The
   plugin never fabricates coordinates — if the VLM fails, you get an explicit
   error, not a guess.
