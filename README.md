@@ -45,6 +45,88 @@ injects them as text, leaving your main model untouched.
   function library (no argparse, no network at import, no prints), so it is
   unit-testable and safe to import anywhere.
 
+## Development history
+
+This plugin was not designed top-down; it grew out of one paper, a stretch of
+reading other people's code, and a stubborn idea that refused to go away.
+
+**10 Jul 2026 — the idea.** I read *Thinking with Visual Primitives*. The part
+that stuck with me was not the architecture but the representation: an image
+does not have to reach a model as pixels or as prose. It can reach it as a
+small set of *primitives* — labelled boxes in a canonical coordinate space —
+and a model can reason over those primitives the way it reasons over any other
+structured text. The paper puts that representation *inside* the model. My
+first thought was the inversion: if primitives are just text, the translation
+step can live entirely *outside* the model. A text-only main model would never
+need to change; something else does the seeing and hands it a
+`<vision-context>`. That inversion is where the project's name comes from.
+
+**Jul 2026 — research.** Before writing anything, I went looking for prior art,
+and found that the same idea had already been realised in the open: the
+**OpenHanako** agent ships a `core/vision-bridge.ts` that turns an image into a
+`<vision-context>` block containing `<visual-primitives coord="norm-1000"
+box_order="xyxy" grounding="...">`. Reading it saved me from a lot of bad
+decisions, and several conventions in this repo are adopted from it on purpose
+rather than reinvented:
+
+- the `<vision-context>` / `<visual-primitives>` wire format and the per-line
+  `id | type | box | ref | confidence | grounding` layout;
+- the `norm-1000` + `xyxy` coordinate contract as the single canonical space;
+- the conservative caps (16 primitives, 96-char labels);
+- and most importantly the idea of an explicit **grounding mode** — being
+  honest about whether coordinates came from a native detector or were merely
+  *prompted* out of a VLM. That one line of humility is why this plugin says
+  `grounding: prompted` everywhere instead of pretending to be a detector.
+
+Keeping the format compatible was a deliberate choice: a context block produced
+here should be readable by anything that already understands that convention.
+
+**Jul–Aug 2026 — making it.** Four decisions shaped the implementation, each
+one a deliberate narrowing of what the tool is allowed to do:
+
+- *Structure over description.* The tool's output contract is boxes, not prose.
+  A rich description reads well and is useless for "which element is left of
+  the submit field" — the answer drifts with the phrasing. Coordinates don't.
+- *The VLM sees; it does not do geometry.* Asking a VLM for spatial relations
+  invites contradictions (A left of B **and** B left of A). Relations here are
+  derived programmatically from the boxes (`source: geometry`) with an epsilon,
+  so a directional predicate only fires when two boxes are strictly separated —
+  contradiction-free by construction.
+- *No nested reasoning.* The tool deliberately never calls a text LLM. It
+  returns `<vision-context>` and stops; the Hermes main model does the
+  thinking. The nested call survives only in `demos/`, to show the pipeline
+  end to end.
+- *Fail closed.* The worst failure mode is a plausible-looking but empty
+  context. On repeated invalid VLM output the tool returns an explicit
+  `"status": "unavailable"` rather than injecting anything fabricated, and
+  out-of-contract boxes surface a `vision_warnings:` line instead of passing
+  silently.
+
+Alongside those, `vision_translation.py` was kept as a side-effect-free
+pure-function library — no argparse, no network, no prints at import — so the
+parsing, normalisation and geometry can be reasoned about and tested without a
+plugin host, and so the CLI demo can reuse the exact plugin core instead of a
+copy of it.
+
+**14 Aug 2026 — release.** Published as a Hermes Agent plugin (`0.1.0`),
+followed the same day by a code-review pass that removed dead code, added the
+out-of-contract warning path, and made the module English-only apart from the
+VLM prompt.
+
+## Acknowledgements
+
+- To the authors of *Thinking with Visual Primitives* — for the representation
+  this whole plugin is built on. The direction here is inverted, but the idea
+  is theirs.
+- To the authors and contributors of **[OpenHanako](https://github.com/liliMozi/openhanako)**,
+  and specifically to whoever wrote and maintains `core/vision-bridge.ts` —
+  seeing the same idea already working in the open was genuinely helpful. The
+  context format, the coordinate contract and the grounding-mode honesty in
+  this repo come from reading your work. Thank you.
+- To Nous Research, for the Hermes Agent plugin system this is built on.
+
+Any mistakes in the implementation are mine, not theirs.
+
 ## Installation
 
 Requires Hermes Agent with a configured `OPENROUTER_API_KEY`.
