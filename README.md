@@ -88,7 +88,7 @@ one a deliberate narrowing of what the tool is allowed to do:
   A rich description reads well and is useless for "which element is left of
   the submit field" — the answer drifts with the phrasing. Coordinates don't.
 - *The VLM sees; it does not do geometry.* Asking a VLM for spatial relations
-  invites contradictions (A left of B **and** B left of A). Relations here are
+  invites contradictions (A left of B *and* B left of A). Relations here are
   derived programmatically from the boxes (`source: geometry`) with an epsilon,
   so a directional predicate only fires when two boxes are strictly separated —
   contradiction-free by construction.
