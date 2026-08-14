@@ -26,6 +26,10 @@ python -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
+> **Why `<2.0`?** mcp 2.0.0 removed the high-level `mcp.server.fastmcp`
+> (FastMCP) API this server is built on. The pin keeps installs on the
+> stable 1.x line; revisit once the 2.x high-level API stabilises.
+
 Verify offline (mock VLM, no key, no network):
 
 ```bash

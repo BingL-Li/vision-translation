@@ -1,4 +1,8 @@
 # Adapter-only dependency — the core stays zero-dependency.
 # Install into a dedicated venv:
 #   python -m venv .venv && .venv/bin/pip install -r requirements.txt
-mcp>=1.0
+#
+# Pinned to 1.x: mcp 2.0.0 removed the high-level FastMCP API
+# (mcp.server.fastmcp) that this server is built on. Revisit when the 2.x
+# high-level API stabilises.
+mcp>=1.0,<2.0

@@ -26,6 +26,8 @@ All notable changes to this project are documented here. Format follows
 - `ADAPTERS.md`: registry now lists mcp (official) + dsh preset; dsh native
   plugin listed as open question instead of planned.
 - CI: MCP adapter smoke test added to the workflow.
+- `adapters/mcp/requirements.txt`: pinned to `mcp>=1.0,<2.0` — mcp 2.0.0
+  removed the FastMCP API (`mcp.server.fastmcp`) this server uses.
 
 ## [0.2.0] — 2026-08-15
 
