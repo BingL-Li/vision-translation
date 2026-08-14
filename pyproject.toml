@@ -1,7 +1,8 @@
 [tool.pytest.ini_options]
-# 仓库根是 Hermes 插件包（目录名带连字符 + 根 __init__.py 含相对导入），
-# pytest 9 目录收集会把根目录卷进测试模块的包前缀推导 → CollectError。
-# 规避：tests/__init__.py 把 tests 变成独立包，包链在 tests 处终止。
-# pythonpath 让 `import vision_translation / cli` 从仓库根解析。
+# 仓库根是 Hermes 插件包（目录名 vision-translation 带连字符 + 根
+# __init__.py 含相对导入）。pytest 9 收集时会尝试把根目录卷进测试模块的
+# 包前缀推导 → CollectError("attempted relative import with no known parent
+# package")。真正解法在根 __init__.py 的双模式导入（try 相对 / except 绝对
+# 兜底）；这里只需让 `import vision_translation / cli` 从仓库根解析。
 pythonpath = ["."]
 testpaths = ["tests"]

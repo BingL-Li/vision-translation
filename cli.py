@@ -1,85 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-vision-translation CLI — cross-language protocol bridge (PROTOCOL v1)
-====================================================================
+vision-translation CLI — cross-language protocol bridge (PROTOCOL v1).
 
-This is the *only* cross-language contract of the vision-translation
-ecosystem. Any adapter in any language (Python, TypeScript, Rust, Go, …)
-talks to the core by spawning this CLI and speaking JSON. Adapters must NOT
-re-implement core logic (parsing, prompts, VLM calls) — see CONTRIBUTING.md.
+The only cross-language contract of the vision-translation ecosystem: any
+adapter (Python, TypeScript, Rust, …) spawns this CLI and speaks JSON to
+reach the core. Adapters must NOT re-implement core logic (parsing, prompts,
+VLM calls) — see CONTRIBUTING.md.
 
----------------------------------------------------------------------------
-PROTOCOL v1 (authoritative definition)
----------------------------------------------------------------------------
+Contract in brief (the normative spec lives in PROTOCOL.md):
 
-1. OUTPUT CONTRACT
-   stdout carries EXACTLY ONE JSON object, nothing else. All human-readable
-   logs go to stderr. An adapter can always do `JSON.parse(stdout)` — if
-   that ever fails, it is a bug in the CLI, not in the adapter.
-
-   Successful parse:
-     {"protocol": 1,
-      "core_version": "0.2.0",
-      "status": "ok",
-      "context": "<vision-context>…</vision-context>",
-      "model": "xiaomi/mimo-v2.5"}
-
-   Fail-closed (the protocol is alive, but the vision parse could not be
-   produced — a LEGAL result, exit code 0):
-     {"protocol": 1, "core_version": "0.2.0",
-      "status": "unavailable",
-      "unavailable": {"reason": "<reason>"}}
-
-     reason ∈ {no_api_key, auth, rate_limited, upstream,
-               vlm_invalid_output, invalid_image, internal}
-       no_api_key        no OpenRouter key found (env or ~/.hermes/.env)
-       auth              HTTP 401/403 — key present but rejected
-       rate_limited      HTTP 429
-       upstream          other HTTP / network errors from the VLM endpoint
-       vlm_invalid_output  VLM returned unusable JSON 3× (fail-closed)
-       invalid_image     image file unreadable / empty
-       internal          anything else
-
-   Request error (the call itself was malformed — the adapter did something
-   wrong; exit code nonzero):
-     {"protocol": 1, "core_version": "0.2.0",
-      "status": "error",
-      "error": {"code": "usage" | "image_not_found" | "internal",
-                "message": "human-readable detail"}}
-
-2. EXIT CODES
-   0  → status is "ok" OR "unavailable" (both are legal results)
-   1  → status is "error" (image_not_found / internal)
-   2  → status is "error" with code "usage" (bad argv or bad stdin envelope)
-   Adapters should branch on `status`, not on the exit code; the exit code
-   exists for shell users.
-
-3. INPUT
-   Positional:   python cli.py <image_path> ["question"]
-   Stdin envelope (preferred for cross-filesystem / agent use — the image
-   travels with the request, so a remote adapter does not need shared
-   storage). A JSON object on stdin:
-     {"protocol": 1,
-      "image": {"path": "/abs/or/rel/path"}          # xor
-             | {"b64": "<base64>", "ext": ".png"},   # xor
-      "question": "optional guiding question",
-      "options": {"model": "…", "max_objects": 16}}
-   argv wins over stdin when both are present. Fields are forward-compatible:
-   unknown fields are ignored, missing optional fields get defaults.
-
-4. READ-ONLY COMMANDS (no tokens, no network — safe for CI handshakes)
-   python cli.py --self-check
-     → {"protocol":1, "core_version":"0.2.0", "status":"ok"|"unavailable",
-        "checks": {"openrouter_key": true|false, "key_source": "env"|"~/.hermes/.env"|null}}
-     Exit 0 in both cases.
-   python cli.py --protocol-version
-     → {"protocol":1, "core_version":"0.2.0", "cli":"0.2.0"}   exit 0
-
-5. VERSIONING
-   protocol == 1 forever for this shape; a breaking change to the envelope or
-   response bumps the protocol number (major bump of the whole repo). Core
-   behavioural changes that keep the protocol shape only bump core_version.
+  stdout  = exactly ONE JSON object, nothing else (logs -> stderr)
+  status  = "ok" | "unavailable" (fail-closed, exit 0) | "error" (exit 1/2)
+  input   = argv <image_path> ["question"]  OR  stdin JSON envelope
+            {"protocol": 1, "image": {"path"|"b64", ...},
+             "question": "...", "options": {...}}
+  handshake commands (no tokens, no network):
+            --self-check | --protocol-version
+  versioning: protocol field bumps on breaking shape changes; core_version
+            on compatible behaviour changes.
 
 CORE_VERSION must stay in sync with `version:` in plugin.yaml (CI asserts it).
 """

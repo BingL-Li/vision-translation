@@ -3,6 +3,10 @@
 """
 Translation with Visual Primitives — CLI demo
 =============================================
+End-to-end illustration of the pipeline (includes a text-LLM step for
+demonstration). Production integrations — any agent, any language — should
+use `cli.py` (PROTOCOL v1) instead; see PROTOCOL.md.
+
 Reuses the plugin core `vision_translation` (same code, no duplication):
   image -> VLM structured primitives -> spatial relations -> <vision-context>
        -> text-only LLM reasoning (demo-only step; the plugin tool itself
