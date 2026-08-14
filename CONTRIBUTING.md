@@ -96,6 +96,8 @@ it. When changing the protocol:
 
 - `pytest` (offline: core unit tests + protocol tests, VLM mocked)
 - template adapter smoke test
+- MCP adapter smoke test (mock VLM, no keys; installs `mcp` from
+  `adapters/mcp/requirements.txt`)
 - CLI stdout purity check (`--self-check` / `--protocol-version` parse as
   single JSON objects)
 - version consistency check: `cli.py`'s `CORE_VERSION` == `plugin.yaml`'s

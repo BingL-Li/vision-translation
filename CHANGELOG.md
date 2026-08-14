@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **MCP adapter** (`adapters/mcp/`): universal stdio server exposing the
+  core as one `vision_translate` MCP tool. Works with any MCP host (dsh,
+  Claude Code, Cursor, Hermes, …). Imports the core directly and reuses
+  `cli._classify`, so it never forks logic; `unavailable` stays a normal
+  (non-error) result so hosts treat fail-closed as legal, not retryable.
+  Offline smoke test (`smoke_test.py`, mock VLM, no key/network) + README
+  with wiring configs for dsh / Claude Code / Cursor / Hermes.
+- **dsh official preset** (`adapters/mcp/dsh-preset.yml`): `- insert:` block
+  wiring the MCP server into a dsh profile via the native
+  `@deepseek-ai/dsh-mcp-client` (model sees `mcp__vision__vision_translate`).
+  Native Cordis plugin remains an open question (attachment parsing / rich
+  rendering / lifecycle), tracked in ADAPTERS.md.
+
+### Changed
+
+- `ADAPTERS.md`: registry now lists mcp (official) + dsh preset; dsh native
+  plugin listed as open question instead of planned.
+- CI: MCP adapter smoke test added to the workflow.
+
 ## [0.2.0] — 2026-08-15
 
 ### Added

@@ -1,0 +1,4 @@
+# Adapter-only dependency — the core stays zero-dependency.
+# Install into a dedicated venv:
+#   python -m venv .venv && .venv/bin/pip install -r requirements.txt
+mcp>=1.0

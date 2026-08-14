@@ -1,0 +1,32 @@
+# vision-translation → dsh official preset
+#
+# Wires the MCP adapter into a dsh profile. dsh ships a native MCP client
+# (@deepseek-ai/dsh-mcp-client); this preset adds one server instance.
+#
+# Usage:
+#   1. Install the adapter deps (see adapters/mcp/README.md) and note the
+#      venv python path.
+#   2. Merge this `- insert:` block into your profile's cordis.patch.yml
+#      (e.g. ~/.dsh/profiles/web/cordis.patch.yml). Patch layers are
+#      id-targeted: an `insert` block appends new entries to the profile
+#      root (no pre-existing id required) — plain `- id:` entries would be
+#      rejected with "entry not found".
+#   3. Restart or HMR-reload the profile. The model sees:
+#      mcp__vision__vision_translate(image, question?, model?, max_objects?)
+#
+# Adjust: `command` → your venv python with `mcp` installed; `args` →
+# absolute path to server.py. OPENROUTER_API_KEY must be present in the
+# dsh host environment (the MCP client scrubs ambient env; the `env` block
+# re-injects it).
+- insert:
+    - id: mcp-vision
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: vision
+        transport: stdio
+        command: /abs/path/to/vision-translation/adapters/mcp/.venv/bin/python
+        args:
+          - /abs/path/to/vision-translation/adapters/mcp/server.py
+        env:
+          OPENROUTER_API_KEY: !!js process.env.OPENROUTER_API_KEY
+        toolCallTimeoutMs: 120000

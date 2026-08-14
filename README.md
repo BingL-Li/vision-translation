@@ -111,6 +111,19 @@ The tool `vision_translate` (toolset `vision_translation`) accepts:
 | one-line description, cheap & fast       | `vision_analyze`            |
 | coordinates, counting, "who is left of whom", UI/PCB element locations, structured entities, OCR | `vision_translate` |
 
+### As an MCP server (any MCP host: dsh, Claude Code, Cursor, …)
+
+```bash
+cd adapters/mcp && python -m venv .venv && .venv/bin/pip install -r requirements.txt
+```
+
+then wire `adapters/mcp/server.py` into your host. dsh: merge
+`adapters/mcp/dsh-preset.yml` into `cordis.patch.yml`. Claude Code / Cursor:
+`.mcp.json` / `~/.cursor/mcp.json`. Full configs: `adapters/mcp/README.md`.
+
+> **Hermes users:** use the native plugin above *or* the MCP server — not
+> both (two identically-purposed tools, wasted schema tokens).
+
 ### As your own agent's adapter
 
 Copy `adapters/_template/`, write a thin shell that spawns `cli.py` and
@@ -148,6 +161,8 @@ vision_translation.py   ← core: the ONLY intelligence (import-pure, stdlib-onl
 cli.py                  ← protocol bridge: image → JSON (PROTOCOL v1)
 __init__.py             ← Hermes plugin (in-process adapter, repo root)
 adapters/_template/     ← scaffold for new adapters (any language/agent)
+adapters/mcp/           ← universal MCP server (dsh / Claude Code / Cursor / …)
+adapters/mcp/dsh-preset.yml ← dsh official preset (MCP via cordis.patch.yml)
 tests/                  ← offline core + protocol tests (mock VLM, no keys)
 PROTOCOL.md             ← normative CLI protocol spec (single source of truth)
 ADAPTERS.md             ← adapter registry + ecosystem rules

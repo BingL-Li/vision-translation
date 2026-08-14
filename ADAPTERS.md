@@ -31,12 +31,27 @@ register yourself below, open a PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | adapter | language | target agent | state | maintainer |
 |---------|----------|--------------|-------|------------|
 | [Hermes](__init__.py) | Python | Hermes Agent plugin | official — in-process (imports core directly, no spawn) | [BingL-Li](https://github.com/BingL-Li) |
+| [mcp](adapters/mcp/) | Python | any MCP host: dsh, Claude Code, Cursor, Hermes, Codex… | official — universal stdio server (imports core directly, reuses cli._classify) | [BingL-Li](https://github.com/BingL-Li) |
+| [dsh](adapters/mcp/dsh-preset.yml) | — | dsh harness | official preset — wires the MCP adapter into a dsh profile (`cordis.patch.yml` `- insert:` block); native Cordis plugin open question, see below | [BingL-Li](https://github.com/BingL-Li) |
 | [_template](adapters/_template/) | Python | any (spawns CLI) | scaffold — copy me | — |
-| dsh | TypeScript | dsh harness | planned (M2) — not yet implemented | — |
 
 Community adapters are self-maintained: their entry in this table states
 who to contact, and CI only smoke-tests them (it does not auto-discover or
 run every adapter in the repo).
+
+## Open question — native dsh plugin?
+
+dsh ships a native MCP client, so a Cordis plugin would only earn its
+maintenance cost if it adds host-specific value the MCP path can't: parsing
+dsh attachments (Web UI uploads may be in-memory blobs, not file paths),
+rich UI rendering of `<vision-context>`, or native lifecycle/HMR. Triggers
+for building `adapters/dsh/`:
+
+- users report attachments don't reach the MCP tool as file paths, or
+- rich rendering / lifecycle integration is actually needed.
+
+Until then the official path is the MCP preset above; new agents should try
+MCP first and only write a native adapter when MCP is not enough.
 
 ## Rules for adapters
 
