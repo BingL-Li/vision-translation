@@ -176,12 +176,26 @@ context directly.
 
 ```bash
 export OPENROUTER_API_KEY=sk-...
-python demos/vision_translate_demo.py path/to/image.jpg "What is the layout?"
+python cli.py path/to/image.jpg "What is the layout?"
 ```
 
-The demo reuses the exact plugin core, then adds a demo-only step: feeding the
-`<vision-context>` to a text-only LLM (default `deepseek/deepseek-v4-flash-0731`,
-override with `VISION_TRANSLATE_TEXT`) to show the full pipeline.
+`cli.py` is the **cross-language protocol bridge** (PROTOCOL v1): stdout is
+exactly one JSON object (`ok` / `unavailable` / `error` with stable
+reasons), logs go to stderr, and it accepts a path argument **or** a stdin
+JSON envelope with base64 image data (for containers / remote agents with no
+shared filesystem). See [ADAPTERS.md](ADAPTERS.md) for the protocol, and
+`adapters/_template/` to wire any agent to the core.
+
+Read-only handshake commands (no tokens, no network — safe for CI):
+
+```bash
+python cli.py --self-check          # {"status":"ok"|"unavailable","checks":{…}}
+python cli.py --protocol-version    # {"protocol":1,"core_version":"0.2.0"}
+```
+
+The demo `demos/vision_translate_demo.py` also shows the full pipeline by
+feeding `<vision-context>` to a text-only LLM (default
+`deepseek/deepseek-v4-flash-0731`, override with `VISION_TRANSLATE_TEXT`).
 
 ## Design notes
 
@@ -219,3 +233,19 @@ override with `VISION_TRANSLATE_TEXT`) to show the full pipeline.
 
 MIT © 2026 Binglun Li. Built as a Hermes Agent plugin with Nous Research's
 Hermes Agent.
+
+## Project layout
+
+```
+vision_translation.py   ← core: the ONLY intelligence (import-pure, stdlib-only)
+cli.py                  ← protocol bridge: image → JSON (PROTOCOL v1)
+__init__.py             ← Hermes plugin (in-process adapter, repo root)
+adapters/_template/     ← scaffold for new adapters (any language/agent)
+tests/                  ← offline core + protocol tests (mock VLM, no keys)
+ADAPTERS.md             ← adapter registry + protocol rules
+CONTRIBUTING.md         ← contribution rules (core = high bar, adapters = low)
+```
+
+Adapters (dsh, Claude Code, aider, …) spawn `cli.py` and speak JSON — they
+never re-implement core logic. Contribute via the rules in
+[CONTRIBUTING.md](CONTRIBUTING.md).

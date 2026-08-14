@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+# 仓库根是 Hermes 插件包（目录名带连字符 + 根 __init__.py 含相对导入），
+# pytest 9 目录收集会把根目录卷进测试模块的包前缀推导 → CollectError。
+# 规避：tests/__init__.py 把 tests 变成独立包，包链在 tests 处终止。
+# pythonpath 让 `import vision_translation / cli` 从仓库根解析。
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -25,7 +25,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from . import vision_translation as vt
+# Dual-mode import: when Hermes loads this plugin as a package, the relative
+# import is used; when pytest or any tool imports this file as a bare top-level
+# module (repo root dir name contains a hyphen, so it can never be a real Python
+# package), we fall back to the absolute import (repo root is on sys.path via
+# pyproject.toml pythonpath).
+try:
+    from . import vision_translation as vt
+except ImportError:  # pragma: no cover - bare top-level import (pytest)
+    import vision_translation as vt  # type: ignore[no-redef]
 
 TOOL_NAME = "vision_translate"
 TOOLSET = "vision_translation"

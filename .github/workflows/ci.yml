@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test deps
+        run: pip install pytest
+
+      - name: Core + protocol tests (offline, no keys)
+        run: python -m pytest tests/ -v
+
+      - name: Adapter template smoke test
+        run: python adapters/_template/smoke_test.py
+
+      - name: CLI read-only commands stay pure JSON
+        run: |
+          python cli.py --self-check | python -c "import json,sys; p=json.load(sys.stdin); assert p['status'] in ('ok','unavailable'), p"
+          python cli.py --protocol-version | python -c "import json,sys; p=json.load(sys.stdin); assert p['protocol']==1 and p['status']=='ok', p"
+
+      - name: Version consistency (cli.CORE_VERSION == plugin.yaml version)
+        run: |
+          python - <<'EOF'
+          import re
+          import vision_translation  # noqa: F401  (import-pure, safe in CI)
+          import cli
+          yaml_v = re.search(r'^version:\s*(\S+)', open('plugin.yaml').read(), re.M).group(1)
+          assert yaml_v == cli.CORE_VERSION, f"plugin.yaml {yaml_v} != cli.CORE_VERSION {cli.CORE_VERSION}"
+          print(f"versions in sync: {cli.CORE_VERSION}")
+          EOF
