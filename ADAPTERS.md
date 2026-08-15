@@ -99,13 +99,16 @@ dsh 已有原生 MCP Client，因此当前官方路径是
 
 ## FAQ
 
-**为什么不要求所有 Bridge 都启动 CLI？**  
+**为什么不要求所有 Bridge 都启动 CLI？**
+
 Python Bridge 直接导入 Core 更简单、更快；CLI 是跨语言和跨进程边界，不是
 Core 的替代品。两条路径必须落到同一个 `vision_translation.py`。
 
-**每次启动 Python 太慢怎么办？**  
+**每次启动 Python 太慢怎么办？**
+
 优先使用长驻的 MCP Server，或提出 CLI 冷启动优化；不要在 Bridge 中复制 Core。
 
-**为什么不把每个 Agent 的支持都写入 Core？**  
+**为什么不把每个 Agent 的支持都写入 Core？**
+
 这样会让宿主变化污染视觉语义并提高所有用户的维护成本。Agent 数量可以增长，
 Core 的职责和输出契约应保持稳定。
