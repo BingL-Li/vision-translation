@@ -1,151 +1,193 @@
-# PROTOCOL v1 — normative specification
+# PROTOCOL v1 规范
 
-> This is the **single source of truth** for the vision-translation CLI
-> protocol. `cli.py` implements it; `ADAPTERS.md` and the template reference
-> it. If any other file disagrees with this one, this file wins.
+> 本文是 `vision-translation` CLI 协议的**唯一规范**。`cli.py` 是实现；
+> README、Bridge 文档或模板与本文冲突时，以本文为准。
 
-## 1. Output contract
+该协议是非 Python Bridge 连接唯一 Core 的跨语言边界。Core 输出
+`<vision-context>`，CLI 只负责输入、版本、状态和 JSON 封装。
 
-`stdout` carries **exactly one JSON object**, nothing else. All
-human-readable logs go to `stderr`. An adapter can always do
-`JSON.parse(stdout)` — if that ever fails, it is a bug in the CLI, not in
-the adapter.
+## 1. 输出契约
 
-Every response carries `protocol` and `core_version`:
+stdout 必须且只能输出一个 JSON 对象。所有人类可读日志写入 stderr。
+Bridge 应能直接执行 `JSON.parse(stdout)`；解析失败属于 CLI 协议缺陷。
 
-```json
-{"protocol": 1, "core_version": "0.2.0", ...}
-```
-
-## 2. Status: three states
-
-### `ok` — vision context produced
+每个响应都包含：
 
 ```json
-{"protocol": 1, "core_version": "0.2.0",
- "status": "ok",
- "context": "<vision-context>…</vision-context>",
- "model": "xiaomi/mimo-v2.5"}
+{"protocol": 1, "core_version": "0.2.0", "...": "..."}
 ```
 
-### `unavailable` — fail-closed, protocol alive (legal result, exit 0)
+## 2. 三种状态
 
-The vision parse could not be produced (no key, VLM down, invalid VLM
-output…). **This is not a crash.** Adapters should treat it as a
-retry/fallback trigger.
+### `ok`
+
+视觉上下文已生成，退出码 0：
 
 ```json
-{"protocol": 1, "core_version": "0.2.0",
- "status": "unavailable",
- "unavailable": {"reason": "<reason>", "message": "detail"}}
+{
+  "protocol": 1,
+  "core_version": "0.2.0",
+  "status": "ok",
+  "context": "<vision-context>…</vision-context>",
+  "model": "xiaomi/mimo-v2.5"
+}
 ```
 
-`reason` ∈ `{no_api_key, auth, rate_limited, upstream, vlm_invalid_output, invalid_image}`:
+### `unavailable`
 
-| reason             | meaning                                                      |
-|--------------------|--------------------------------------------------------------|
-| `no_api_key`       | no OpenRouter key found (env, `~/.hermes/.env`, or `~/.env`) |
-| `auth`             | HTTP 401/403 — key present but rejected                      |
-| `rate_limited`     | HTTP 429                                                    |
-| `upstream`         | other HTTP / network errors from the VLM endpoint            |
-| `vlm_invalid_output` | VLM returned unusable JSON 3× (fail-closed)                |
-| `invalid_image`    | image file unreadable / empty / bad base64                   |
-
-### `error` — malformed request or internal bug (nonzero exit)
-
-The call itself was wrong — the adapter did something wrong, or the CLI has
-a bug. Adapters should surface this, not retry blindly.
+协议正常，但当前无法可靠地产生视觉上下文，退出码 0：
 
 ```json
-{"protocol": 1, "core_version": "0.2.0",
- "status": "error",
- "error": {"code": "usage" | "image_not_found" | "internal",
-           "message": "human-readable detail"}}
+{
+  "protocol": 1,
+  "core_version": "0.2.0",
+  "status": "unavailable",
+  "unavailable": {"reason": "no_api_key"}
+}
 ```
 
-- `usage` — bad argv or bad stdin envelope (exit 2)
-- `image_not_found` — the path does not exist (exit 1). Note: a file that
-  exists but is unreadable/empty is `unavailable` / `invalid_image`, not
-  `image_not_found`.
-- `internal` — anything else (exit 1)
+这是**合法的失败关闭结果**。Bridge 应触发明确的回退或告知用户当前不可见，
+不能猜测图片内容。
 
-## 3. Exit codes
+| `reason` | 含义 |
+|---|---|
+| `no_api_key` | 环境、`~/.hermes/.env` 和 `~/.env` 均未找到 OpenRouter Key |
+| `auth` | OpenRouter 返回 HTTP 401/403 |
+| `rate_limited` | OpenRouter 返回 HTTP 429 |
+| `upstream` | 其他上游 HTTP 或网络错误 |
+| `vlm_invalid_output` | VLM 连续三次返回不可用 JSON |
+| `invalid_image` | 图片不可读、为空或 Base64 无效 |
 
-| exit | status            |
-|------|-------------------|
-| 0    | `ok` or `unavailable` (both are legal results) |
-| 1    | `error` (`image_not_found` / `internal`) |
-| 2    | `error` with code `usage` |
+实现可以附加 `message`，但 Bridge 逻辑只能依赖稳定的 `reason`。
 
-Adapters should **branch on `status`, not on the exit code**; the exit code
-exists for shell users.
+### `error`
 
-## 4. Input
+调用本身不合法，或 CLI 出现内部错误，退出码非 0：
 
-### Positional argv
+```json
+{
+  "protocol": 1,
+  "core_version": "0.2.0",
+  "status": "error",
+  "error": {"code": "usage", "message": "human-readable detail"}
+}
+```
+
+| `code` | 含义 | 退出码 |
+|---|---|---|
+| `usage` | argv 或 stdin Envelope 不合法 | 2 |
+| `image_not_found` | 路径不存在 | 1 |
+| `internal` | 其他内部错误 | 1 |
+
+已存在但不可读或为空的文件属于 `unavailable / invalid_image`，不是
+`image_not_found`。
+
+## 3. 退出码
+
+| 退出码 | 状态 |
+|---|---|
+| 0 | `ok` 或 `unavailable` |
+| 1 | `error`：`image_not_found` / `internal` |
+| 2 | `error`：`usage` |
+
+Bridge 必须先读取 `status`；退出码主要服务 Shell 用户。
+
+## 4. 输入
+
+### argv
 
 ```bash
 python cli.py <image_path> ["question"]
 ```
 
-### Stdin envelope (preferred for cross-filesystem / agent use)
+第一个参数是图片路径，其余参数会合并为问题。
 
-The image travels with the request, so a remote adapter does not need
-shared storage:
+### stdin Envelope
+
+跨文件系统、容器或远程 Bridge 推荐使用 stdin：
 
 ```json
-{"protocol": 1,
- "image": {"path": "/abs/or/rel/path"}            // xor
-        | {"b64": "<base64>", "ext": ".png"},     // xor
- "question": "optional guiding question",
- "options": {"model": "…", "max_objects": 16}}
+{
+  "protocol": 1,
+  "image": {"path": "/abs/or/rel/path"},
+  "question": "optional guiding question",
+  "options": {"model": "provider/model", "max_objects": 16}
+}
 ```
 
-- `argv` wins over stdin when both are present.
-- **Forward compatibility**: unknown fields are ignored; missing optional
-  fields get defaults. An adapter written for a newer protocol must not
-  break old servers, and vice versa.
+或在 `image` 中使用 Base64，两者互斥：
 
-## 5. Read-only commands (no tokens, no network — safe for CI handshakes)
+```json
+{
+  "protocol": 1,
+  "image": {"b64": "<base64>", "ext": ".png"},
+  "question": "",
+  "options": {}
+}
+```
+
+- argv 与 stdin 同时存在时，argv 优先。
+- `max_objects` 最终限制在 1–16。
+- 未知字段被忽略，缺失的可选字段使用默认值。
+- 当前实现只接受 `protocol: 1`。
+
+## 5. 只读握手
+
+以下命令不读取图片、不使用 Token、不访问网络。
+
+### 自检
 
 ```bash
 python cli.py --self-check
 ```
 
 ```json
-{"protocol": 1, "core_version": "0.2.0",
- "status": "ok" | "unavailable",
- "checks": {"openrouter_key": true|false,
-            "key_source": "env" | "<absolute path of the .env file>" | null,
-            "core_import": "ok"}}
+{
+  "protocol": 1,
+  "core_version": "0.2.0",
+  "status": "ok",
+  "checks": {
+    "openrouter_key": true,
+    "key_source": "env",
+    "core_import": "ok"
+  }
+}
 ```
 
-Exit 0 in both cases. Without a key, `status` is `unavailable` with
-`reason: no_api_key` — this is the documented no-key behaviour, not a
-failure.
+没有 Key 时仍退出 0，`status` 为 `unavailable`，并包含
+`unavailable.reason: no_api_key`。`key_source` 可以是 `env`、读取到的
+`.env` 绝对路径或 `null`。
+
+### 版本
 
 ```bash
 python cli.py --protocol-version
 ```
 
 ```json
-{"protocol": 1, "core_version": "0.2.0", "status": "ok", "cli": "0.2.0"}
+{
+  "protocol": 1,
+  "core_version": "0.2.0",
+  "status": "ok",
+  "cli": "0.2.0"
+}
 ```
 
-Exit 0.
+退出码为 0。
 
-## 6. Versioning
+## 6. 版本规则
 
-- `protocol` — the envelope/response shape. `1` is current. A **breaking**
-  change to the shape bumps the protocol number (and the repo major
-  version). Adapters declare which protocol they speak.
-- `core_version` — core behaviour changes that keep the shape only bump
-  `core_version`. It is kept in sync with `version:` in `plugin.yaml`;
-  CI asserts the match.
+- `protocol`：Envelope 和响应形状。破坏兼容性的修改必须提升协议号，并提升
+  仓库主版本；Bridge 声明其兼容版本。
+- `core_version`：不改变协议形状的 Core 行为版本。必须与 `plugin.yaml` 中
+  `version` 同步，CI 会检查。
+- `cli`：CLI 实现版本。
 
-## 7. Compatibility rules (adapter-facing)
+## 7. Bridge 兼容规则
 
-1. Never assume the response has more fields than documented here.
-2. Unknown fields in the response are safe to ignore.
-3. `unavailable` may carry a `message`; use `reason` for logic.
-4. A missing optional field means "use the default" — never guess.
+1. 不假设存在本文未保证的字段。
+2. 忽略未知响应字段。
+3. 使用 `unavailable.reason` 做逻辑判断，`message` 只用于展示。
+4. 缺失可选字段时使用本文定义的默认行为。
+5. 不把 `unavailable` 当作协议崩溃，也不在该状态下编造视觉内容。
+6. 不解析 `<vision-context>` 后重算坐标或关系；它是 Core 的最终结果。

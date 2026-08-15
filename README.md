@@ -1,317 +1,304 @@
 # Translation with Visual Primitives
 
-> **一个视觉翻译核心，任何 agent 的即插即用转接器。**
->
-> An image → `<vision-context>` translator: a pure Python core turns an
-> image into structured **visual primitives** (norm-1000 xyxy bboxes),
-> **spatial relations** (derived from geometry), and **OCR** — then hands
-> the result to your text-only model as text. Your main model never touches
-> pixels; something else does the seeing.
+> **一个稳定的视觉翻译 Core，任意 Agent 通过 Bridge 即插即用。**
 
-The name is a deliberate counterpoint to DeepSeek's paper
-[*Thinking with Visual Primitives*](https://arxiv.org/abs/2508.12952): that
-paper makes a model *think in* visual primitives internally; this project
-does the opposite — an external layer **translates** vision into primitives
-and injects them as text, leaving your main model untouched.
+本项目把图片翻译成结构化的 `<vision-context>` 文本：辅助 VLM 负责“看”，
+Core 统一生成 `norm-1000 xyxy` 视觉基元、由几何计算得到的空间关系和 OCR；
+主 Agent 只消费文本，不接触像素，也不需要修改自身模型。
 
-```
-┌─────────┐   ┌──────────────────┐   ┌───────────────────────────┐
-│  image  │ → │ auxiliary VLM    │ → │ canonical primitives      │
-│ (file)  │   │ (any, model-     │   │ norm-1000 xyxy bboxes     │
-└─────────┘   │  agnostic)       │   ├───────────────────────────┤
-              └──────────────────┘   │ programmatic spatial      │
-                                     │ relations (geometry)      │
-                                     ├───────────────────────────┤
-                                     │ <vision-context> text     │
-                                     │ → injected into the main  │
-                                     │   text-only LLM           │
-                                     └───────────────────────────┘
-```
+项目名有意呼应 DeepSeek 的论文
+[*Thinking with Visual Primitives*](https://arxiv.org/abs/2508.12952)：
+论文让模型在内部用视觉基元思考，本项目则把方向反过来——在模型外部把视觉
+**翻译**成基元，再交给原本的文本模型。
 
-## Architecture: core + protocol + adapters
+## 架构：一个 Core，任意 Agent，各自的 Bridge
 
-```
-vision_translation.py   ← core: the ONLY intelligence (import-pure, stdlib-only)
-cli.py                  ← protocol bridge: image → JSON (PROTOCOL v1)
-adapters/               ← thin shells: Hermes, dsh, Claude Code, your agent…
+```text
+                                   ┌──────────────────────────────┐
+                                   │ auxiliary VLM               │
+                                   │ 只负责看图并返回结构化 JSON │
+                                   └──────────────┬───────────────┘
+                                                  │
+                                                  ▼
+┌──────────────┐   image/question   ┌──────────────────────────────┐
+│ 任意 Agent   │ ─────────────────▶ │ Bridge                       │
+│ Hermes / dsh │                    │ 原生插件 / MCP / CLI Adapter │
+│ Claude Code  │ ◀───────────────── │ 只做接入、协议与状态映射     │
+│ Cursor / ... │  <vision-context>  └──────────────┬───────────────┘
+└──────────────┘                                   │ 调用（不复制）
+                                                  ▼
+                                   ┌──────────────────────────────┐
+                                   │ 唯一 Core                    │
+                                   │ vision_translation.py        │
+                                   │ 规范化基元 → 几何关系 → 文本 │
+                                   └──────────────────────────────┘
 ```
 
-- **core** never knows about agents — it only does `image → <vision-context>`.
-- **cli.py** is the only cross-language contract: any adapter in any
-  language spawns it and speaks JSON ([PROTOCOL.md](PROTOCOL.md)).
-- **adapters** are thin shells; they never re-implement core logic
-  ([ADAPTERS.md](ADAPTERS.md), [CONTRIBUTING.md](CONTRIBUTING.md)).
+图中的调用在实现上是往返的：Core 调用辅助 VLM，Bridge 调用 Core，最终
+`<vision-context>` 经 Bridge 返回 Agent。Bridge 有两种合法接法：
 
-## Quick start
+- Python Bridge 可以直接导入 Core；Hermes 原生插件和 MCP Bridge 都这样做。
+- 其他语言或隔离进程通过 `cli.py` 的 PROTOCOL v1 JSON 边界调用 Core。
 
-### As a CLI (anyone, no Hermes needed)
+```text
+vision_translation.py   Core：唯一的视觉翻译逻辑，import-pure
+cli.py                  跨语言协议入口：argv/stdin → 单个 JSON
+__init__.py             Hermes 原生 Bridge（进程内）
+adapters/mcp/           通用 MCP Bridge（进程内导入 Core）
+adapters/_template/     社区 Bridge 模板（通过 CLI）
+```
+
+**核心不随 Agent 改变。** 新 Agent 不需要在 Core 中增加分支；社区只需贡献
+一个薄 Bridge，把宿主的图片/问题交给既有 Core，再把结果映射回宿主。
+Bridge 不得复制提示词、JSON 解析、框归一化、空间关系或 VLM 调用逻辑。
+
+## 快速开始
+
+### 直接使用 CLI
+
+无需 Hermes。Core 运行时仅依赖 Python 标准库；Pillow 是可选的图片旋转和
+缩放增强。
 
 ```bash
 export OPENROUTER_API_KEY=sk-...
 python cli.py path/to/image.jpg "What is the layout?"
 ```
 
-stdout is exactly one JSON object (logs go to stderr):
+stdout 始终只有一个 JSON 对象，日志只能写入 stderr：
 
 ```json
-{"protocol": 1, "core_version": "<core_version>", "status": "ok",
- "context": "<vision-context>…</vision-context>",
- "model": "xiaomi/mimo-v2.5"}
+{
+  "protocol": 1,
+  "core_version": "<core_version>",
+  "status": "ok",
+  "context": "<vision-context>…</vision-context>",
+  "model": "xiaomi/mimo-v2.5"
+}
 ```
 
-> `<core_version>` is a placeholder — the authoritative value comes from
-> `python cli.py --protocol-version` (and is kept in sync with
-> `plugin.yaml` by CI).
+示例中的 `<core_version>` 是占位符；实际值以
+`python cli.py --protocol-version` 输出为准，并由 CI 检查它与
+`plugin.yaml` 一致。
 
-Status is `ok` | `unavailable` (fail-closed, exit 0) | `error` (exit 1–2).
-Full spec: [PROTOCOL.md](PROTOCOL.md).
+`status` 为：
 
-Read-only handshake commands (no tokens, no network — safe for CI):
+- `ok`：已得到视觉上下文，退出码 0；
+- `unavailable`：无密钥、上游不可用或 VLM 输出无效等可预期降级，退出码 0；
+- `error`：请求错误或内部错误，退出码 1–2。
+
+完整契约见 [PROTOCOL.md](PROTOCOL.md)。以下握手命令不读取图片、不使用
+Token、不访问网络，适合 CI：
 
 ```bash
 python cli.py --self-check
 python cli.py --protocol-version
 ```
 
-### As a Hermes Agent plugin
+### Hermes Agent 原生 Bridge
 
-Requires Hermes Agent with a configured `OPENROUTER_API_KEY`.
+需要已配置 `OPENROUTER_API_KEY` 的 Hermes Agent。
 
 ```bash
-# From GitHub (recommended)
+# 推荐：从 GitHub 安装
 hermes plugins install BingL-Li/vision-translation --enable
 
-# Or manually: clone/copy into the user plugin directory
+# 或手动放入用户插件目录
 git clone https://github.com/BingL-Li/vision-translation ~/.hermes/plugins/vision-translation
 hermes plugins enable vision-translation
 ```
 
-Then **restart** the Hermes process serving your conversation (a new CLI
-session or a gateway restart — plugins load at process start).
-
-Verify:
+安装后重启承载对话的 Hermes 进程，再验证：
 
 ```bash
-hermes plugins list          # shows enabled
-hermes tools list            # shows ✓ enabled vision_translation
+hermes plugins list
+hermes tools list
 ```
 
-The tool `vision_translate` (toolset `vision_translation`) accepts:
+工具 `vision_translate`（toolset：`vision_translation`）参数如下：
 
-| param          | type   | description                                            |
-|----------------|--------|--------------------------------------------------------|
-| `image_path`   | string | local image path (required)                            |
-| `question`     | string | optional question to guide parsing                     |
-| `max_objects`  | int    | max primitives to keep (default 12, cap 16)            |
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `image_path` | string | 本地图片路径，必填 |
+| `question` | string | 用于引导解析重点的可选问题 |
+| `max_objects` | int | 保留的最大基元数，默认 12、上限 16 |
 
-**When to use `vision_translate` vs the built-in `vision_analyze`:**
+只需一句廉价描述时使用 Hermes 内置 `vision_analyze`；需要坐标、计数、相对
+位置、UI/PCB 元素位置、结构化实体或 OCR 时使用 `vision_translate`。
 
-| need                                     | tool                        |
-|------------------------------------------|-----------------------------|
-| one-line description, cheap & fast       | `vision_analyze`            |
-| coordinates, counting, "who is left of whom", UI/PCB element locations, structured entities, OCR | `vision_translate` |
+### MCP Bridge
 
-### As an MCP server (any MCP host: dsh, Claude Code, Cursor, …)
+适用于 dsh、Claude Code、Cursor 等任意 MCP Host：
 
 ```bash
-cd adapters/mcp && python -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd adapters/mcp
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python smoke_test.py
 ```
 
-then wire `adapters/mcp/server.py` into your host. dsh: merge
-`adapters/mcp/dsh-preset.yml` into `cordis.patch.yml`. Claude Code / Cursor:
-`.mcp.json` / `~/.cursor/mcp.json`. Full configs: `adapters/mcp/README.md`.
+随后把 `adapters/mcp/server.py` 配置为 stdio MCP Server。dsh 可合并
+`adapters/mcp/dsh-preset.yml`；Claude Code 和 Cursor 分别使用 `.mcp.json`
+和 `~/.cursor/mcp.json`。完整配置见
+[adapters/mcp/README.md](adapters/mcp/README.md)。
 
-> **Hermes users:** use the native plugin above *or* the MCP server — not
-> both (two identically-purposed tools, wasted schema tokens).
+Hermes 用户应在原生插件与 MCP Bridge 中二选一，避免注册两个用途相同的工具。
 
-### As your own agent's adapter
-
-Copy `adapters/_template/`, write a thin shell that spawns `cli.py` and
-branches on `status`, add a smoke test, open a PR. Walkthrough:
-[ADAPTERS.md](ADAPTERS.md) → [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Features
-
-- **Model-agnostic vision bridge** — works with *any* auxiliary VLM on
-  OpenRouter (default: `xiaomi/mimo-v2.5`; override with
-  `VISION_TRANSLATE_VLM`). Your main model stays text-only and unchanged.
-- **Structured, not descriptive** — object bounding boxes in a canonical
-  `norm-1000 xyxy` coordinate contract, spatial relations
-  (`left_of / right_of / above / below / inside / overlaps`) derived
-  *programmatically* from geometry (`source: geometry`), plus OCR and a
-  scene summary.
-- **Zero heavy dependencies** — pure Python stdlib (`urllib`); Pillow is
-  optional (used only for EXIF orientation + downscaling).
-- **Fail-closed, honest grounding** — on repeated invalid VLM output the
-  CLI returns an explicit `status: "unavailable"` payload instead of
-  injecting fabricated context. Every primitive is annotated
-  `grounding: prompted` (coordinates are prompted from the VLM, not native
-  detector output).
-- **Import-pure core** — `vision_translation.py` is a side-effect-free pure
-  function library (no argparse, no network at import, no prints), so it is
-  unit-testable and safe to import anywhere.
-- **One protocol, many agents** — the CLI contract is versioned
-  (`protocol` + `core_version`), forward-compatible, and documented once in
-  [PROTOCOL.md](PROTOCOL.md). Adapters declare compatibility.
-
-## Project layout
-
-```
-vision_translation.py   ← core: the ONLY intelligence (import-pure, stdlib-only)
-cli.py                  ← protocol bridge: image → JSON (PROTOCOL v1)
-__init__.py             ← Hermes plugin (in-process adapter, repo root)
-adapters/_template/     ← scaffold for new adapters (any language/agent)
-adapters/mcp/           ← universal MCP server (dsh / Claude Code / Cursor / …)
-adapters/mcp/dsh-preset.yml ← dsh official preset (MCP via cordis.patch.yml)
-tests/                  ← offline core + protocol tests (mock VLM, no keys)
-PROTOCOL.md             ← normative CLI protocol spec (single source of truth)
-ADAPTERS.md             ← adapter registry + ecosystem rules
-CONTRIBUTING.md         ← contribution rules (core = high bar, adapters = low)
-CHANGELOG.md            ← version history
-```
-
-## Demo (end-to-end pipeline)
+### 端到端 Demo
 
 ```bash
 python demos/vision_translate_demo.py path/to/image.jpg "What is the layout?"
 ```
 
-Shows the full pipeline including a text-LLM step (demo only; production
-integrations use `cli.py`).
+Demo 额外演示把 `<vision-context>` 交给文本 LLM；生产集成只需 Bridge + Core，
+Core 本身不会嵌套调用文本 LLM。
 
-## Design notes
+### 为其他 Agent 增加 Bridge
 
-- **Coordinate contract**: `norm-1000` — image space normalized to 1000×1000,
-  `xyxy` box order, clamped/validated on the way in; zero-area boxes are
-  dropped.
-- **Spatial relations** are derived from geometry with a small epsilon
-  (`EPS=20/1000`), deduplicated, and contradiction-free by construction
-  (directional predicates only fire when boxes are strictly separated).
-- **Budget**: results are hard-capped (`RESULT_BUDGET=2000` chars);
-  primitives/relations survive, prose is trimmed.
-- **Out-of-contract detection**: if the VLM returns boxes outside the
-  `norm-1000` range (e.g. raw pixel coordinates), they are clamped and a
-  `vision_warnings:` line is emitted into the context so the main model knows
-  the numbers may be unreliable.
-- **Cost note**: the fail-closed path can spend up to 3 full image-bearing
-  VLM calls before giving up (each retry re-sends the image). This is
-  deliberate — a wrong context is worse than an explicit `unavailable` —
-  but be aware that a failing VLM is not cheap.
-- **Security**: images are sent to the configured OpenRouter VLM only. The
-  tool never fabricates coordinates — if the VLM fails, you get an explicit
-  error, not a guess.
+```bash
+cp -r adapters/_template adapters/<your-agent>
+```
 
-## Limitations
+实现宿主接入、补充 README 和离线 smoke test、登记到
+[ADAPTERS.md](ADAPTERS.md)，即可提交 PR。详细流程见
+[CONTRIBUTING.md](CONTRIBUTING.md)。
 
-- Grounding is *prompted*: the auxiliary VLM is prompted to emit boxes; it
-  is not a native detection model. Accuracy is good for layout/UI/scene
-  understanding but not pixel-perfect.
-- Requires an OpenRouter-capable auxiliary VLM that accepts image input
-  (check `input_modalities` before choosing).
-- Main-model benefits are best for models with strong spatial reasoning
-  over coordinate text (DeepSeek-family models were the original target).
+## 数据流
 
-## Development history
+1. Bridge 接收 Agent 给出的图片路径、问题和可选参数。
+2. Core 处理 EXIF 方向，并在 Pillow 可用时将长边限制为 1568 像素。
+3. Core 把图片交给可配置的 OpenRouter 辅助 VLM（默认
+   `xiaomi/mimo-v2.5`，可由 `VISION_TRANSLATE_VLM` 覆盖）。
+4. Core 容错解析 JSON，校验并规范化对象框；坐标越界会被钳制并产生警告，
+   零面积或非有限坐标会被丢弃。
+5. Core 根据几何关系计算 `left_of / right_of / above / below / inside /
+   overlaps`，而不是让 VLM 猜关系。
+6. Core 渲染不超过 2000 字符的 `<vision-context>`；优先保留基元和关系，
+   超限时先裁剪描述文本。
+7. Bridge 将成功、不可用或错误状态转换成宿主 Agent 能理解的结果。
 
-This project was not designed top-down; it grew out of one paper, a stretch
-of reading other people's code, and a stubborn idea that refused to go
-away.
+## 设计边界
 
-**10 Jul 2026 — the idea.** I read *Thinking with Visual Primitives*. The
-part that stuck with me was not the architecture but the representation: an
-image does not have to reach a model as pixels or as prose. It can reach it
-as a small set of *primitives* — labelled boxes in a canonical coordinate
-space — and a model can reason over those primitives the way it reasons over
-any other structured text. The paper puts that representation *inside* the
-model. My first thought was the inversion: if primitives are just text, the
-translation step can live entirely *outside* the model. A text-only main
-model would never need to change; something else does the seeing and hands
-it a `<vision-context>`. That inversion is where the project's name comes
-from.
+- **统一坐标契约**：`norm-1000`、`xyxy`，左上角 `(0, 0)`，右下角
+  `(1000, 1000)`。
+- **诚实 Grounding**：坐标是 VLM 按提示生成，不是原生检测器输出，因此明确
+  标记为 `grounding: prompted`。
+- **几何而非语言关系**：方向关系只在两个框以 `EPS=20` 明确分离时产生，
+  避免互相矛盾；包含和重叠也由框计算。
+- **失败关闭**：三次无效 VLM 输出后返回 `unavailable`，绝不注入看似合理的
+  空上下文或编造内容。失败路径最多会发送三次带图请求，需留意成本。
+- **Core 可测试**：`vision_translation.py` 导入时无网络、无 argparse、无
+  输出；测试可以在 HTTP 边界 Mock VLM。
+- **Bridge 可扩展**：宿主生命周期、附件格式、工具协议属于 Bridge；视觉语义、
+  解析和几何只属于 Core。
+- **隐私边界**：图片会发送到配置的 OpenRouter VLM，不会发送给主文本模型；
+  使用前应确认数据策略满足你的场景。
 
-**Jul 2026 — research.** Before writing anything, I went looking for prior
-art, and found that the same idea had already been realised in the open: the
-**OpenHanako** agent ships a `core/vision-bridge.ts` that turns an image into
-a `<vision-context>` block containing `<visual-primitives coord="norm-1000"
-box_order="xyxy" grounding="...">`. Reading it saved me from a lot of bad
-decisions, and several conventions in this repo are adopted from it on
-purpose rather than reinvented:
+## 输出示意
 
-- the `<vision-context>` / `<visual-primitives>` wire format and the per-line
-  `id | type | box | ref | confidence | grounding` layout;
-- the `norm-1000` + `xyxy` coordinate contract as the single canonical space;
-- the conservative caps (16 primitives, 96-char labels);
-- and most importantly the idea of an explicit **grounding mode** — being
-  honest about whether coordinates came from a native detector or were merely
-  *prompted* out of a VLM. That one line of humility is why this project says
-  `grounding: prompted` everywhere instead of pretending to be a detector.
+```text
+<vision-context>
+<visual-primitives coord="norm-1000" box_order="xyxy" grounding="prompted">
+- v1 | type: box | box: [86, 120, 420, 630] | ref: panel | confidence: 0.96 | grounding: prompted
+- v2 | type: box | box: [610, 210, 900, 520] | ref: button | confidence: 0.93 | grounding: prompted
+</visual-primitives>
+<visual-relations>
+- v1 left_of v2 | source: geometry | confidence: 1.0
+</visual-relations>
+visible_text: Submit
+</vision-context>
+```
 
-Keeping the format compatible was a deliberate choice: a context block
-produced here should be readable by anything that already understands that
-convention.
+## 仓库结构
 
-**Jul–Aug 2026 — making it.** Four decisions shaped the implementation,
-each one a deliberate narrowing of what the tool is allowed to do:
+```text
+vision_translation.py       唯一 Core
+cli.py                      PROTOCOL v1 跨语言入口
+__init__.py                 Hermes 原生 Bridge
+adapters/_template/         社区 Bridge 脚手架
+adapters/mcp/               通用 MCP Bridge 与 dsh preset
+demos/                      含文本 LLM 步骤的端到端演示
+tests/                      离线 Core 与协议测试
+PROTOCOL.md                 CLI 协议唯一规范
+ADAPTERS.md                 Bridge 注册表与生态规则
+CONTRIBUTING.md             贡献流程与两级维护边界
+CHANGELOG.md                版本历史
+```
 
-- *Structure over description.* The output contract is boxes, not prose. A
-  rich description reads well and is useless for "which element is left of
-  the submit field" — the answer drifts with the phrasing. Coordinates don't.
-- *The VLM sees; it does not do geometry.* Asking a VLM for spatial
-  relations invites contradictions (A left of B *and* B left of A).
-  Relations here are derived programmatically from the boxes
-  (`source: geometry`) with an epsilon, so a directional predicate only
-  fires when two boxes are strictly separated — contradiction-free by
-  construction.
-- *No nested reasoning.* The core deliberately never calls a text LLM. It
-  returns `<vision-context>` and stops; the main model does the thinking.
-  The nested call survives only in `demos/`, to show the pipeline end to
-  end.
-- *Fail closed.* The worst failure mode is a plausible-looking but empty
-  context. On repeated invalid VLM output the tool returns an explicit
-  `status: "unavailable"` rather than injecting anything fabricated, and
-  out-of-contract boxes surface a `vision_warnings:` line instead of passing
-  silently.
+## 局限
 
-Alongside those, `vision_translation.py` was kept as a side-effect-free
-pure-function library — no argparse, no network, no prints at import — so
-the parsing, normalisation and geometry can be reasoned about and tested
-without a plugin host, and so the CLI and every adapter can reuse the exact
-core instead of a copy of it.
+- Grounding 来自 VLM 提示而非原生检测器，适合布局、UI 和场景理解，但不保证
+  像素级准确。
+- 需要支持图片输入的 OpenRouter VLM；更换模型前应核对其
+  `input_modalities`。
+- 主模型需要能可靠理解坐标文本和空间关系；DeepSeek 系列是最初目标，但
+  Core 与主 Agent 模型无关。
+- MCP Bridge 当前接收本地文件路径；只提供内存附件且不共享文件系统的宿主
+  需要自行增加原生 Bridge 或附件转换。
 
-**14 Aug 2026 — release.** Published as a Hermes Agent plugin (`0.1.0`),
-followed the same day by a code-review pass that removed dead code, added
-the out-of-contract warning path, and made the module English-only apart
-from the VLM prompt.
+## 心路历程
 
-**15 Aug 2026 — core + adapters.** Added the cross-language CLI protocol
-(`cli.py`, PROTOCOL v1), an offline test suite, the adapter template,
-ecosystem docs, and CI. The repo stopped being "a Hermes plugin" and became
-"a core + a protocol + a ring of adapters" — Hermes remains the in-process
-official adapter at the repo root, unchanged.
+这个项目并非从一张完整蓝图开始，而是从一篇论文、阅读开源实现的过程，以及
+一个一直放不下的想法逐步长出来的。
 
-## Acknowledgements
+**2026-07-10：想法出现。** 阅读 *Thinking with Visual Primitives* 时，最打动
+我的并不是模型架构，而是表示方法：图片不一定以像素或散文式描述进入模型，
+也可以变成少量带标签、位于统一坐标系中的视觉基元。论文把这种表示放进模型
+内部；我的第一反应是把它反过来——既然基元最终可以是文本，翻译过程就能完全
+位于模型外部。主模型无需改造，由另一个组件负责看图并交给它
+`<vision-context>`。项目名由此而来。
 
-- To the authors of *Thinking with Visual Primitives* — for the
-  representation this whole project is built on. The direction here is
-  inverted, but the idea is theirs.
-- To the authors and contributors of
-  **[OpenHanako](https://github.com/liliMozi/openhanako)**, and specifically
-  to whoever wrote and maintains `core/vision-bridge.ts` — seeing the same
-  idea already working in the open was genuinely helpful. The context
-  format, the coordinate contract and the grounding-mode honesty in this
-  repo come from reading your work. Thank you.
-- To Nous Research, for the Hermes Agent plugin system the repo-root adapter
-  is built on.
+**2026 年 7 月：寻找前人的路。** 动手前我先寻找类似工作，并在开源项目
+**OpenHanako** 中看到了 `core/vision-bridge.ts`：它已经把图片转成包含
+`<visual-primitives coord="norm-1000" box_order="xyxy" grounding="...">`
+的 `<vision-context>`。这次阅读帮我避开了很多弯路，本项目有意沿用了：
 
-Any mistakes in the implementation are mine, not theirs.
+- `<vision-context>` / `<visual-primitives>` 格式，以及每行
+  `id | type | box | ref | confidence | grounding` 的表达；
+- `norm-1000` + `xyxy` 这一套唯一坐标空间；
+- 16 个基元、96 字符标签等保守上限；
+- 最重要的 Grounding 模式：诚实区分原生检测坐标与 VLM 提示坐标。
 
-## Contributing
+因此这里始终写明 `grounding: prompted`，而不把辅助 VLM 伪装成检测器。
+保持格式兼容也是有意为之：这里生成的上下文应尽可能被已理解该约定的工具读取。
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) (two-tier review bar: core = high,
-adapters = low) and [ADAPTERS.md](ADAPTERS.md) (registry + rules). Changes
-are documented in [CHANGELOG.md](CHANGELOG.md).
+**2026 年 7–8 月：把边界做窄。** 四个选择最终塑造了实现：
 
-## License
+1. **结构优先于描述。** “哪个元素在提交框左边”需要稳定坐标，而不是每次措辞
+   都可能变化的长描述。
+2. **VLM 负责看，程序负责几何。** 让 VLM 同时判断关系容易产生 A 在 B 左边、
+   B 又在 A 左边的矛盾；这里仅从框推导关系。
+3. **不嵌套推理。** Core 到 `<vision-context>` 就停止，主模型自己思考；文本
+   LLM 的二次调用只保留在 `demos/` 中。
+4. **失败关闭。** 错误但可信的上下文比明确不可用更危险，所以连续无效输出会
+   返回 `unavailable`，越界坐标也会显式写入 `vision_warnings:`。
 
-MIT © 2026 Binglun Li. Built as a Hermes Agent plugin with Nous Research's
-Hermes Agent.
+同时，`vision_translation.py` 被保持为无导入副作用的纯函数库，使解析、
+归一化和几何能脱离任何 Agent 测试，也让所有 Bridge 复用同一份 Core。
+
+**2026-08-14：首次发布。** 项目以 Hermes Agent 插件 `0.1.0` 发布；同日完成
+代码审查，删除死代码，加入坐标越界警告，并整理模块语言。
+
+**2026-08-15：从插件走向生态。** PROTOCOL v1、`cli.py`、离线测试、
+Bridge 模板、MCP Bridge、生态文档和 CI 逐步加入。仓库不再只是“一个 Hermes
+插件”，而成为“一个 Core + 稳定边界 + 一圈 Bridge”。Hermes 仍是官方原生
+Bridge，但不再是 Core 的前提。
+
+下一步不是让 Core 感知更多 Agent，而是让社区为自己的 Agent 贡献 Bridge。
+只要共同遵守协议和“不复制 Core”的规则，Agent 可以不断增加，核心保持不变。
+
+## 致谢
+
+- *Thinking with Visual Primitives* 的作者：这个项目建立在其视觉基元表示启发上。
+- [OpenHanako](https://github.com/liliMozi/openhanako) 的作者和贡献者，尤其是
+  `core/vision-bridge.ts` 的维护者：本项目的上下文格式、坐标契约和 Grounding
+  诚实性来自对该实现的学习。
+- Nous Research：Hermes Agent 插件系统承载了本项目最早的原生 Bridge。
+
+实现中的任何错误都由本项目承担。
+
+## 贡献与许可证
+
+Core 变更采用高门槛审查，Bridge 贡献采用低门槛审查。详见
+[CONTRIBUTING.md](CONTRIBUTING.md) 和 [ADAPTERS.md](ADAPTERS.md)。
+
+MIT © 2026 Binglun Li。
