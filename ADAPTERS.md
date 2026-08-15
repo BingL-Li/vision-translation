@@ -45,7 +45,8 @@ stdin JSON Envelope 还能直接携带 Base64 图片，适合不共享文件系�
 |---|---|---|---|---|
 | [Hermes](__init__.py) | Python | Hermes Agent | 官方、进程内原生插件 | [BingL-Li](https://github.com/BingL-Li) |
 | [MCP](adapters/mcp/) | Python | dsh、Claude Code、Cursor、Hermes、Codex 等 MCP Host | 官方、stdio MCP Server，进程内导入 Core | [BingL-Li](https://github.com/BingL-Li) |
-| [dsh preset](adapters/mcp/dsh-preset.yml) | YAML | dsh | 官方配置，通过 `@deepseek-ai/dsh-mcp-client` 连接 MCP Bridge | [BingL-Li](https://github.com/BingL-Li) |
+| [dsh 原生插件](adapters/dsh/) | JavaScript (Node/Cordis) | dsh | 官方、原生 Cordis 插件：注册工具 `vision_translate`，通过 `ctx.attachments.readImage` 解析附件 ref（`sha256:<hex>`）→ b64 stdin Envelope → spawn `cli.py`（PROTOCOL v1） | [BingL-Li](https://github.com/BingL-Li) |
+| [dsh preset](adapters/mcp/dsh-preset.yml) | YAML | dsh | 官方配置、轻量路径：通过 `@deepseek-ai/dsh-mcp-client` 连接 MCP Bridge | [BingL-Li](https://github.com/BingL-Li) |
 | [社区模板](adapters/_template/) | Python 示例 | 任意 Agent / 任意语言 | 脚手架，通过 CLI | — |
 
 社区 Bridge 由其贡献者自行维护，注册表应明确维护者和兼容协议。CI 不会自动发现
@@ -80,15 +81,27 @@ stdin JSON Envelope 还能直接携带 Base64 图片，适合不共享文件系�
 
 ## dsh 原生 Bridge 的判断
 
-dsh 已有原生 MCP Client，因此当前官方路径是
-[`dsh-preset.yml`](adapters/mcp/dsh-preset.yml)。只有 MCP 无法提供以下宿主
-特性时，独立的 `adapters/dsh/` 才值得维护：
+**已解决。** 原生 Cordis 插件已实现在 [`adapters/dsh/`](adapters/dsh/)：
+注册 dsh 工具 `vision_translate`，通过 `ctx.attachments.readImage` 把 dsh
+图片附件（`sha256:<hex>` ref）解析为 stdin b64 Envelope，并以 spawn
+`cli.py`（PROTOCOL v1）作为唯一进程。当图片以 dsh 附件（Web UI 上传）而非
+文件系统路径到达时，原生插件是官方路径。
+
+MCP preset（`adapters/mcp/dsh-preset.yml`）仍是**轻量路径**：每宿主一个
+stdio server，适合宿主把图片作为本地文件路径传入、且不想安装 npm 插件的
+场景。对比：
+
+- 原生插件：附件 ref 可用（Web 上传），无常驻 server 进程，零运行时依赖，
+  随 profile HMR 热更新。
+- MCP preset：单次安装最简单，但 stdio 只传字符串，附件 ref 无法到达
+  仅接受字符串的 MCP 工具。
+
+新宿主按需选择：需要 dsh 附件支持时用原生插件；否则 MCP preset 足够。
+当 MCP 无法提供以下宿主特性时，独立的 `adapters/dsh/` 才值得维护：
 
 - Web UI 上传只以内存对象存在，无法向 MCP 暴露文件路径；
 - 需要 `<vision-context>` 的富 UI 展示；
 - 需要 Cordis 原生生命周期或 HMR。
-
-在这些需求被验证前，不为“原生”而重复实现 Bridge。
 
 ## 版本兼容
 

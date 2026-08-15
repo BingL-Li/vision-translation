@@ -1,0 +1,25 @@
+# vision-translation → dsh official native Cordis plugin (bundle patch)
+#
+# Registers the native vision plugin (tool `vision_translate`) into a dsh
+# profile. Merge this `- insert:` block into your profile's
+# `cordis.patch.yml` (or a deployment bundle patch). Patch layers are
+# id-targeted: an `insert` block appends new rows to the profile root, so no
+# pre-existing id is required.
+#
+# The plugin spawns `python cli.py` as its only process (never a server), so
+# OPENROUTER_API_KEY is resolved by the CLI itself (env / ~/.hermes/.env /
+# ~/.env) — see PROTOCOL.md / adapters/mcp for the key-source contract.
+- insert:
+    # The plugin row. `name` is the npm package containing this bundle patch;
+    # the plugin id and tool id are both `vision-translate`.
+    - id: vision-translate
+      name: vision-translation-dsh
+      config:
+        # cliPath: "" = auto-detect (env VISION_TRANSLATION_CLI, then the
+        # package-relative ../../cli.py repo fallback). Set an absolute path
+        # to cli.py to pin it.
+        cliPath: ""
+        # Python binary used to run cli.py.
+        pythonBin: "python3"
+        # Cooperative tool-call timeout (also the CLI kill timer).
+        toolCallTimeoutMs: 120000

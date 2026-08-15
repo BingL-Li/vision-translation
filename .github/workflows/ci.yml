@@ -33,6 +33,13 @@ jobs:
           pip install -r adapters/mcp/requirements.txt
           python adapters/mcp/smoke_test.py
 
+      - name: dsh native plugin smoke test (Node, offline, no keys)
+        run: |
+          cd adapters/dsh
+          # Zero runtime deps; tests only import lib/vision.js (no dsh packages),
+          # so no `npm install` is needed — run directly, offline.
+          npm test
+
       - name: CLI read-only commands stay pure JSON
         run: |
           python cli.py --self-check | python -c "import json,sys; p=json.load(sys.stdin); assert p['status'] in ('ok','unavailable'), p"
