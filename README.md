@@ -69,12 +69,16 @@ stdout 始终只有一个 JSON 对象，日志只能写入 stderr：
 ```json
 {
   "protocol": 1,
-  "core_version": "0.2.0",
+  "core_version": "<core_version>",
   "status": "ok",
   "context": "<vision-context>…</vision-context>",
   "model": "xiaomi/mimo-v2.5"
 }
 ```
+
+示例中的 `<core_version>` 是占位符；实际值以
+`python cli.py --protocol-version` 输出为准，并由 CI 检查它与
+`plugin.yaml` 一致。
 
 `status` 为：
 
