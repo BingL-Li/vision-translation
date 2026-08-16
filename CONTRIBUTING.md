@@ -196,7 +196,7 @@ Bridge 可以实现宿主特有的附件解析、工具命名、UI 和生命周�
 
 ## CI
 
-## CI
+## CI（持续集成）
 
 `.github/workflows/ci.yml` runs on Python 3.10, 3.11, and 3.12 and checks:
 

@@ -36,8 +36,6 @@ Every response includes:
 
 ### `ok`
 
-### `ok`
-
 Visual context was generated successfully and the exit code is 0.
 
 视觉上下文已生成，退出码 0：
@@ -51,8 +49,6 @@ Visual context was generated successfully and the exit code is 0.
   "model": "xiaomi/mimo-v2.5"
 }
 ```
-
-### `unavailable`
 
 ### `unavailable`
 
@@ -94,8 +90,6 @@ This is a **legal fail-closed result**. A Bridge should provide an explicit fall
 Implementations may add `message`, but Bridge logic may depend only on the stable `reason`.
 
 实现可以附加 `message`，但 Bridge 逻辑只能依赖稳定的 `reason`。
-
-### `error`
 
 ### `error`
 
@@ -154,7 +148,7 @@ Bridge 必须先读取 `status`；退出码主要服务 Shell 用户。
 
 ### argv
 
-### argv
+### argv 输入
 
 ```bash
 python cli.py <image_path> ["question"]
@@ -271,8 +265,6 @@ The exit code is 0.
 - `cli`：CLI 实现版本。
 
 ## 7. Bridge compatibility rules
-
-## 7. Bridge 兼容规则
 
 1. Do not assume fields that this document does not guarantee.
 2. Ignore unknown response fields.

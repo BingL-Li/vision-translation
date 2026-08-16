@@ -29,7 +29,7 @@ Python Bridge 可以直接导入 `vision_translation.py`，避免启动子进程
 
 ### PROTOCOL v1
 
-### PROTOCOL v1
+### PROTOCOL v1 协议
 
 Other languages, containers, or isolated processes use `cli.py`:
 
@@ -157,8 +157,6 @@ Choose per host: use the native plugin when dsh attachment support is required; 
 - `protocol` 描述请求/响应 Envelope。破坏性变更提升协议号和仓库主版本。
 - `core_version` 描述不破坏 Envelope 的 Core 行为版本，并与 `plugin.yaml` 的 `version` 保持一致。
 - 未知响应字段必须可忽略，缺失可选字段使用文档默认值。
-
-## FAQ
 
 ## FAQ
 

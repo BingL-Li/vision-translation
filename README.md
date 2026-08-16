@@ -153,8 +153,6 @@ Use Hermes' built-in `vision_analyze` for a cheap one-sentence description. Use 
 
 ### MCP Bridge
 
-### MCP Bridge
-
 The MCP Bridge works with dsh, Claude Code, Cursor, Hermes, Codex, and any other MCP Host:
 
 MCP Bridge 适用于 dsh、Claude Code、Cursor、Hermes、Codex 以及任意 MCP Host：
