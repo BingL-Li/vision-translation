@@ -10,7 +10,7 @@ Design constraints (shared by the plugin and the CLI demo):
   the main model does the reasoning.
 - Honest grounding: the auxiliary VLM is prompted to emit boxes
   (grounding: prompted), not a native detector.
-- Hard output caps: primitives/relations survive budget trimming, prose is cut.
+- Hard output caps: coordinates are kept first, then relations, then prose.
 Dependencies: stdlib urllib only (Pillow optional, used for downscaling).
 Key: OPENROUTER_API_KEY from the process environment (loaded by Hermes/caller).
 """
@@ -51,8 +51,11 @@ def image_to_data_url(path: str, max_edge: int = MAX_EDGE) -> str:
     if not os.path.isfile(path):
         raise FileNotFoundError(f"image not found: {path}")
     mime = mimetypes.guess_type(path)[0] or "image/jpeg"
-    with open(path, "rb") as f:
-        data = f.read()
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        raise ValueError(f"unreadable image: {path}: {e}") from e
     if not data:
         raise ValueError(f"empty image: {path}")
     try:
@@ -102,6 +105,10 @@ def _call(model: str, messages: list, *, json_mode: bool = False, retries: int =
     if isinstance(last_err, urllib.error.HTTPError):
         body = last_err.read().decode("utf-8", "replace")
         raise RuntimeError(f"OpenRouter HTTP {last_err.code}: {body[:300]}")
+    if isinstance(last_err, json.JSONDecodeError):
+        raise RuntimeError(f"OpenRouter call failed: upstream non-JSON response: {last_err}")
+    if isinstance(last_err, urllib.error.URLError):
+        raise RuntimeError(f"OpenRouter call failed: upstream network error: {last_err}")
     raise RuntimeError(f"OpenRouter call failed: {last_err}")
 
 
@@ -172,8 +179,15 @@ def normalize_bbox(obj: dict, warnings: Optional[List[str]] = None) -> Optional[
     raw = (x1, y1, x2, y2)
     x1, x2 = min(x1, x2), max(x1, x2)
     y1, y2 = min(y1, y2), max(y1, y2)
-    if x2 - x1 < 0.5 or y2 - y1 < 0.5:
-        return None  # zero-area box
+    # Clamp and round first; then enforce the zero-area contract on the
+    # values that will actually be returned (an out-of-contract box such as
+    # [1000, 0, 1001, 1000] collapses to zero width only after clamping).
+    cx1, cx2 = max(0.0, min(1000.0, x1)), max(0.0, min(1000.0, x2))
+    cy1, cy2 = max(0.0, min(1000.0, y1)), max(0.0, min(1000.0, y2))
+    rx1, rx2 = round(cx1), round(cx2)
+    ry1, ry2 = round(cy1), round(cy2)
+    if rx2 - rx1 < 0.5 or ry2 - ry1 < 0.5:
+        return None  # zero-area box after clamping
     if warnings is not None:
         outside = [v for v in raw if v < 0 or v > 1000]
         if outside:
@@ -181,10 +195,7 @@ def normalize_bbox(obj: dict, warnings: Optional[List[str]] = None) -> Optional[
                 f"bbox {[round(v, 1) for v in raw]} outside norm-1000 contract "
                 f"(possible pixel-space output from the VLM)"
             )
-    return [
-        round(max(0.0, min(1000.0, x1))), round(max(0.0, min(1000.0, y1))),
-        round(max(0.0, min(1000.0, x2))), round(max(0.0, min(1000.0, y2))),
-    ]
+    return [rx1, ry1, rx2, ry2]
 
 
 def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES,
@@ -202,8 +213,9 @@ def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES,
         box = normalize_bbox(o, warnings=warnings)
         if box is None:
             continue
+        raw_conf = o.get("confidence") if o.get("confidence") is not None else o.get("conf")
         try:
-            conf = float(o.get("confidence") or o.get("conf") or 1.0)
+            conf = float(raw_conf) if raw_conf is not None else 1.0
         except (TypeError, ValueError):
             conf = 1.0
         conf = max(0.0, min(1.0, conf))
@@ -254,8 +266,13 @@ def derive_spatial_relations(prims: List[dict]) -> List[dict]:
     seen = set()
 
     def add(subject, predicate, object, source="geometry", confidence=1.0):
-        # Direction-agnostic predicates (overlaps) dedupe on a sorted key.
-        key = tuple(sorted([subject, object])) if predicate == "overlaps" else (subject, predicate, object)
+        # Direction-agnostic predicates (overlaps and inside) dedupe on a
+        # sorted key so two boxes can never produce contradictory mutual
+        # relations for the same undirected geometry.
+        if predicate in ("overlaps", "inside"):
+            key = tuple(sorted([subject, object]))
+        else:
+            key = (subject, predicate, object)
         if key in seen:
             return
         seen.add(key)
@@ -278,7 +295,12 @@ def derive_spatial_relations(prims: List[dict]) -> List[dict]:
         # Containment (direction-aware: A inside B when A mostly falls in B)
         ca = _containment(A, B)
         cb = _containment(B, A)
-        if ca >= 0.90:
+        if ca >= 0.90 and cb >= 0.90:
+            # Coincident / nearly identical boxes: keep exactly one inside
+            # relation, with the smaller id first.
+            subj, obj = sorted((a, b))
+            add(subj, "inside", obj)
+        elif ca >= 0.90:
             add(a, "inside", b)
         elif cb >= 0.90:
             add(b, "inside", a)
@@ -290,8 +312,18 @@ def derive_spatial_relations(prims: List[dict]) -> List[dict]:
 def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
                           question: str = "", budget: int = RESULT_BUDGET,
                           warnings: Optional[List[str]] = None) -> str:
-    """Render <vision-context>. Primitives/relations are protected; prose and
-    warnings are the first to be trimmed when over budget."""
+    """Render <vision-context> under a hard character budget.
+
+    Priority when over budget:
+      1. primitive coordinates (highest confidence first),
+      2. spatial relations (highest confidence first),
+      3. prose (summary / scene / OCR / warnings),
+      4. user question.
+
+    The returned string (including the <vision-context> tags) is guaranteed to
+    be no longer than ``budget`` characters whenever ``budget`` can cover the
+    fixed wrapper itself.
+    """
     note = (vlm_json.get("summary") or "").strip()
     scene = (vlm_json.get("scene") or "").strip()
     ocr = vlm_json.get("ocr") or vlm_json.get("visible_text") or []
@@ -299,24 +331,58 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
         ocr = [ocr]
     ocr_str = "; ".join(str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in ocr)
 
-    # 1) primitives / relations (always kept; budgeted separately)
+    prefix = "<vision-context>\n"
+    suffix = "\n</vision-context>"
+    body_budget = max(0, budget - len(prefix) - len(suffix))
+    trunc_mark = "…[truncated]"
+
+    def _prim_line(p: dict) -> str:
+        bx = f"[{p['box'][0]}, {p['box'][1]}, {p['box'][2]}, {p['box'][3]}]"
+        return (f"- {p['id']} | type: box | box: {bx} | ref: {p['label']} "
+                f"| confidence: {p['confidence']} | grounding: {GROUNDING}")
+
+    def _rel_line(r: dict) -> str:
+        return (f"- {r['subject']} {r['predicate']} {r['object']} "
+                f"| source: {r['source']} | confidence: {r['confidence']}")
+
+    def _fit_block(header: str, footer: str, lines: List[str], limit: int) -> str:
+        """Keep the highest-priority prefix of ``lines`` that fits in ``limit``."""
+        block = header
+        for line in lines:
+            candidate = block + "\n" + line
+            if len(candidate + "\n" + footer) <= limit:
+                block = candidate
+            else:
+                break
+        return "" if block == header else block + "\n" + footer
+
+    # 1) primitives first: coordinates are the most valuable signal.
     prim_block = ""
     if prims:
-        lines = [f'<visual-primitives coord="{COORD}" box_order="{BOX_ORDER}" grounding="{GROUNDING}">']
-        for p in prims:
-            bx = f"[{p['box'][0]}, {p['box'][1]}, {p['box'][2]}, {p['box'][3]}]"
-            lines.append(f"- {p['id']} | type: box | box: {bx} | ref: {p['label']} | confidence: {p['confidence']} | grounding: {GROUNDING}")
-        lines.append("</visual-primitives>")
-        prim_block = "\n".join(lines)
+        prim_header = f'<visual-primitives coord="{COORD}" box_order="{BOX_ORDER}" grounding="{GROUNDING}">'
+        prim_footer = "</visual-primitives>"
+        prims_sorted = sorted(prims, key=lambda p: p.get("confidence", 0.0), reverse=True)
+        prim_block = _fit_block(
+            prim_header, prim_footer,
+            [_prim_line(p) for p in prims_sorted], body_budget,
+        )
+
+    # 2) relations second, within whatever budget the primitives left unused.
     rel_block = ""
     if rels:
-        lines = ["<visual-relations>"]
-        for r in rels:
-            lines.append(f"- {r['subject']} {r['predicate']} {r['object']} | source: {r['source']} | confidence: {r['confidence']}")
-        lines.append("</visual-relations>")
-        rel_block = "\n".join(lines)
+        rel_limit = body_budget - len(prim_block) - (1 if prim_block else 0)
+        if rel_limit > 0:
+            rel_header = "<visual-relations>"
+            rel_footer = "</visual-relations>"
+            rels_sorted = sorted(rels, key=lambda r: r.get("confidence", 0.0), reverse=True)
+            rel_block = _fit_block(
+                rel_header, rel_footer,
+                [_rel_line(r) for r in rels_sorted], rel_limit,
+            )
 
-    # 2) prose + warnings (trimmed first)
+    core = "\n".join(x for x in [prim_block, rel_block] if x)
+
+    # 3) prose + warnings are the first to be trimmed.
     prose_lines = []
     if note:
         prose_lines.append(f"image_1: {note}")
@@ -328,26 +394,40 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
         prose_lines.append("vision_warnings: " + "; ".join(warnings))
     prose = "\n".join(prose_lines)
 
-    # 3) assemble: primitives/relations up front and protected, prose last
-    core = "\n".join(x for x in [prim_block, rel_block] if x)
-    body_lines = []
-    if core:
-        body_lines.append(core)
+    # 4) question has the lowest priority in the budget.
+    trail_lines = []
     if prose:
-        body_lines.append(prose)
+        trail_lines.append(prose)
     if question:
-        body_lines.append(f"user_request: {question}")
-    body = "\n".join(body_lines)
+        trail_lines.append(f"user_request: {question}")
+    trail = "\n".join(trail_lines)
 
-    # Over budget: keep primitives/relations, trim the trailing prose part.
-    if len(body) > budget:
-        header = core
-        trail = "\n\n".join(x for x in [prose, f"user_request: {question}"] if x)
-        keep = max(0, budget - len(header) - 3)
-        trail = trail[:keep] + "…[truncated]"
-        body = "\n\n".join(x for x in [header, trail] if x)
+    body = core
+    if core and trail:
+        body = core + "\n" + trail
+    elif trail:
+        body = trail
 
-    return f"<vision-context>\n{body}\n</vision-context>"
+    # Hard cap: core is already within body_budget; trim the trailing prose /
+    # question only. Keep the ellipsis marker inside the remaining budget.
+    if len(body) > body_budget:
+        if core:
+            trail_limit = body_budget - len(core) - 1
+            if trail_limit <= 0:
+                body = core
+            else:
+                keep = max(0, trail_limit - len(trunc_mark))
+                if keep < len(trail):
+                    trail = trail[:keep] + trunc_mark
+                body = core + "\n" + trail
+        else:
+            keep = max(0, body_budget - len(trunc_mark))
+            if keep < len(trail):
+                trail = trail[:keep] + trunc_mark
+            body = trail
+        body = body[:body_budget]
+
+    return f"{prefix}{body}{suffix}"
 
 
 # --------------------------------------------------------------------------- #
