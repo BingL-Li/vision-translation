@@ -160,8 +160,6 @@ The first argument is the image path; remaining arguments are joined into the qu
 
 ### stdin Envelope
 
-### stdin Envelope
-
 For separate filesystems, containers, or remote Bridges, stdin is recommended:
 
 跨文件系统、容器或远程 Bridge 推荐使用 stdin：
