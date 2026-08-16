@@ -49,18 +49,21 @@ _USAGE = (
 # --------------------------------------------------------------------------- #
 # env / key handling (adapter-layer concern — the core never touches this)
 # --------------------------------------------------------------------------- #
-def _load_env_key(name: str) -> str:
+def _load_env_key(name: str) -> Optional[str]:
     """Key resolution order: process env, ~/.hermes/.env, ~/.env."""
+    env_val = os.environ.get(name)
+    if env_val is not None:
+        return env_val
     for p in (Path.home() / ".hermes" / ".env", Path.home() / ".env"):
         if p.is_file():
             try:
-                for line in p.read_text(encoding="utf-8").splitlines():
+                for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
                     line = line.strip()
                     if line.startswith(name + "="):
                         return line.split("=", 1)[1].strip()
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 pass
-    return os.environ.get(name, "")
+    return None
 
 
 def _key_status() -> Dict[str, Any]:
@@ -71,9 +74,9 @@ def _key_status() -> Dict[str, Any]:
         if p.is_file():
             try:
                 if any(l.strip().startswith("OPENROUTER_API_KEY=")
-                       for l in p.read_text(encoding="utf-8").splitlines()):
+                       for l in p.read_text(encoding="utf-8", errors="replace").splitlines()):
                     return {"present": True, "source": str(p)}
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 pass
     return {"present": False, "source": None}
 
@@ -103,6 +106,8 @@ def _classify(err: Exception) -> Dict[str, Any]:
             return {"status": "unavailable", "reason": "rate_limited", "message": msg}
         if "HTTP 401" in msg or "HTTP 403" in msg:
             return {"status": "unavailable", "reason": "auth", "message": msg}
+        if "upstream network error" in msg or "upstream non-JSON response" in msg:
+            return {"status": "unavailable", "reason": "upstream", "message": msg}
         if "HTTP" in msg:
             return {"status": "unavailable", "reason": "upstream", "message": msg}
         if "invalid JSON" in msg:
@@ -142,11 +147,13 @@ def _resolve_image_path(envelope: Optional[Dict[str, Any]]) -> Optional[Path]:
         return None
     if img.get("path"):
         return Path(str(img["path"])).expanduser()
-    if img.get("b64"):
+    if img.get("b64") is not None:
         try:
             raw = base64.b64decode(str(img["b64"]), validate=True)
-        except Exception:
-            return None
+        except Exception as e:
+            raise ValueError(f"invalid base64 image data: {e}") from e
+        if not raw:
+            raise ValueError("invalid base64 image data: empty payload")
         suffix = str(img.get("ext") or ".jpg")
         fd, tmp = tempfile.mkstemp(prefix="vt-", suffix=suffix)
         with os.fdopen(fd, "wb") as f:
@@ -204,7 +211,15 @@ def _cmd_translate(argv: List[str], envelope: Optional[Dict[str, Any]]) -> int:
         options = envelope.get("options") or {}
         if not isinstance(options, dict):
             options = {}
-        image_path = _resolve_image_path(envelope)
+        try:
+            image_path = _resolve_image_path(envelope)
+        except Exception as e:  # noqa: BLE001 — protocol boundary: classify, never crash
+            cls = _classify(e)
+            if cls["status"] == "unavailable":
+                return _emit({**_base(), "status": "unavailable",
+                              "unavailable": {"reason": cls["reason"]}}, 0)
+            return _emit({**_base(), "status": "error",
+                          "error": {"code": cls["code"], "message": cls["message"]}}, 1)
 
     if image_path is None:
         return _emit({**_base(), "status": "error",
@@ -221,8 +236,8 @@ def _cmd_translate(argv: List[str], envelope: Optional[Dict[str, Any]]) -> int:
     max_objects = max(1, min(max_objects, vt.MAX_PRIMITIVES))
 
     # --- run core (the only intelligence; we never re-implement it) ------- #
-    _ensure_key()
     try:
+        _ensure_key()
         ctx = vt.analyze(str(image_path), question=question,
                          model=model, max_objects=max_objects)
     except Exception as e:  # noqa: BLE001 — protocol boundary: classify, never crash
