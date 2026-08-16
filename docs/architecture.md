@@ -43,7 +43,7 @@ flowchart LR
 | Core | VLM JSON → 基元 → 几何 → 文本 |
 | VLM | 查看图片并返回结构化 JSON |
 
-The Core pipeline is: `image → VLM JSON → normalized norm-1000 xyxy primitives → geometric relations → <vision-context>`.
+The Core pipeline is: `image → VLM JSON → norm-1000 xyxy primitives → geometric relations → <vision-context>`.
 
 Core 的内部流水线是：`image → VLM JSON → 规范化的 norm-1000 xyxy 基元 → 几何关系 → <vision-context>`。
 
