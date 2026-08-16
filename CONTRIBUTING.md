@@ -194,7 +194,7 @@ Bridge 可以实现宿主特有的附件解析、工具命名、UI 和生命周�
 - [ ] 文档命令、相对链接和实现保持一致。
 - [ ] 没有提交 API Key、图片隐私数据或其他凭据。
 
-## CI
+## CI (Continuous Integration)
 
 `.github/workflows/ci.yml` runs on Python 3.10, 3.11, and 3.12 and checks:
 

@@ -27,7 +27,7 @@ A Python Bridge can import `vision_translation.py` directly and avoid a child pr
 
 Python Bridge 可以直接导入 `vision_translation.py`，避免启动子进程。Hermes 原生插件和 MCP Bridge 使用这种方式。它们可以复用 `cli._classify` 完成统一状态分类，但不能复制 Core 逻辑。
 
-### PROTOCOL v1
+### PROTOCOL v1 (CLI protocol)
 
 ### PROTOCOL v1 协议
 
