@@ -13,25 +13,21 @@ Core 统一生成 `norm-1000 xyxy` 视觉基元、由几何计算得到的空间
 
 ## 架构：一个 Core，任意 Agent，各自的 Bridge
 
-```text
-                                   ┌──────────────────────────────┐
-                                   │ auxiliary VLM               │
-                                   │ 只负责看图并返回结构化 JSON │
-                                   └──────────────┬───────────────┘
-                                                  │
-                                                  ▼
-┌──────────────┐   image/question   ┌──────────────────────────────┐
-│ 任意 Agent   │ ─────────────────▶ │ Bridge                       │
-│ Hermes / dsh │                    │ 原生插件 / MCP / CLI Adapter │
-│ Claude Code  │ ◀───────────────── │ 只做接入、协议与状态映射     │
-│ Cursor / ... │  <vision-context>  └──────────────┬───────────────┘
-└──────────────┘                                   │ 调用（不复制）
-                                                  ▼
-                                   ┌──────────────────────────────┐
-                                   │ 唯一 Core                    │
-                                   │ vision_translation.py        │
-                                   │ 规范化基元 → 几何关系 → 文本 │
-                                   └──────────────────────────────┘
+```mermaid
+flowchart LR
+  A["任意 Agent<br/>Hermes · dsh · Claude Code"]
+  B["Bridge<br/>每 Agent 一个 · 只做接入与协议映射"]
+  C["cli.py<br/>跨语言协议入口 · PROTOCOL v1"]
+  D["唯一 Core<br/>vision_translation.py"]
+  V["auxiliary VLM<br/>可选 · 只看图返回 JSON"]
+
+  A -- "image + question" --> B
+  B -- "进程内 import（Hermes / MCP）" --> D
+  B -- "spawn（跨语言/隔离进程）" --> C
+  C --> D
+  D -. "按需调用" .-> V
+  D -- "vision-context" --> B
+  B -- "vision-context" --> A
 ```
 
 图中的调用在实现上是往返的：Core 调用辅助 VLM，Bridge 调用 Core，最终

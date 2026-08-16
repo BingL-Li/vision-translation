@@ -17,6 +17,11 @@
   `@deepseek-ai/dsh-mcp-client` 将 MCP Bridge 接入 dsh Profile，模型工具名为
   `mcp__vision__vision_translate`。是否需要处理附件或富 UI 的原生 Bridge，
   继续在 `ADAPTERS.md` 中说明。
+- **dsh 原生插件**（`adapters/dsh/`）：官方 Cordis 插件，注册工具
+  `vision_translate`，通过 `ctx.attachments.readImage` 解析 dsh 附件 ref
+  （`sha256:<hex>`）→ b64 stdin Envelope → spawn `cli.py`（PROTOCOL v1）。
+  零运行时依赖，离线 node:test 测试套件；与 MCP preset 是互补路径
+  （原生插件支持 Web UI 附件，preset 仅接收文件路径）。
 
 ### 变更
 
