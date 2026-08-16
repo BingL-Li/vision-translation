@@ -43,11 +43,16 @@
   },
   "keywords": [
     "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek-harness-plugin",
     "cordis",
+    "cordis-plugin",
     "vision",
     "vision-translation",
     "visual-primitives",
-    "deepseek-harness"
+    "mcp",
+    "grounding"
   ],
   "author": "Binglun Li (BingL-Li)",
   "license": "MIT"

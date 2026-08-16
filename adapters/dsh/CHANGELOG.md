@@ -21,3 +21,6 @@ All notable changes to the `vision-translation-dsh` native dsh adapter.
   unavailable / error, timeout, missing CLI, clamping, concurrency-safe).
 - Bundle patch (`cordis.patch.yml`) and npm publish metadata
   (`dsh.bundle.patch`, `exports`, `files` whitelist).
+- Official discoverability tags: npm `keywords` now include `dsh-plugin` /
+  `deepseek-harness-plugin` / `cordis-plugin`, and the README documents the
+  `dsh-plugin` GitHub topic for the official dsh plugin registry.
