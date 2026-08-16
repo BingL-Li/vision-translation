@@ -25,8 +25,6 @@ flowchart LR
 
 ## One responsibility per layer
 
-每一层只负责一件事
-
 | Layer | Responsibility |
 |---|---|
 | Agent | Sends an image and question; receives `vision-context` text |
@@ -34,6 +32,8 @@ flowchart LR
 | `cli.py` | Cross-language Core boundary (`PROTOCOL v1`, stdin Base64) |
 | Core | VLM JSON → primitives → geometry → text |
 | VLM | Looks at the image and returns structured JSON |
+
+每一层只负责一件事
 
 | 层 | 职责 |
 |---|---|

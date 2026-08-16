@@ -196,17 +196,17 @@ Bridge 可以实现宿主特有的附件解析、工具命名、UI 和生命周�
 
 ## CI
 
-## CI（持续集成）
-
 `.github/workflows/ci.yml` runs on Python 3.10, 3.11, and 3.12 and checks:
-
-`.github/workflows/ci.yml` 在 Python 3.10、3.11、3.12 上运行并检查：
 
 - Offline Core and protocol pytest tests;
 - Community template smoke test;
 - MCP Bridge smoke test;
 - JSON purity for `--self-check` and `--protocol-version`;
 - `cli.CORE_VERSION == plugin.yaml version`.
+
+## CI（持续集成）
+
+`.github/workflows/ci.yml` 在 Python 3.10、3.11、3.12 上运行并检查：
 
 - 离线 Core 与协议 pytest；
 - 社区模板 smoke test；
