@@ -33,7 +33,7 @@ flowchart LR
 | Core | VLM JSON → primitives → geometry → text |
 | VLM | Looks at the image and returns structured JSON |
 
-### 中文职责表
+**中文：**
 
 | 层 | 职责 |
 |---|---|
