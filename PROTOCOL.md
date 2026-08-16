@@ -158,7 +158,7 @@ The first argument is the image path; remaining arguments are joined into the qu
 
 第一个参数是图片路径，其余参数会合并为问题。
 
-### stdin envelope
+### stdin Envelope
 
 ### stdin Envelope
 
