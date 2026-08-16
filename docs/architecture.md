@@ -33,6 +33,8 @@ flowchart LR
 | Core | VLM JSON → primitives → geometry → text |
 | VLM | Looks at the image and returns structured JSON |
 
+### 中文职责表
+
 | 层 | 职责 |
 |---|---|
 | Agent | 发送图片和问题，接收 `vision-context` 文本 |
