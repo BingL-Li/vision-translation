@@ -11,6 +11,21 @@ the main model reasons over.
 > This adapter lives in the repo at [`adapters/dsh/`](.). For an MCP-based
 > alternative see [`adapters/mcp/`](../mcp/).
 
+## Discoverability (official dsh plugin tag)
+
+Per the [dsh README](https://github.com/deepseek-ai/deepseek-harness),
+plugin repos get discovered through the **`dsh-plugin`** topic and the npm
+`keywords` of the published package. This adapter ships the required tags:
+
+- GitHub topic: `dsh-plugin` (add it on the repository's About/Topics page).
+- npm `keywords`: `dsh`, `dsh-plugin`, `deepseek-harness`,
+  `deepseek-harness-plugin`, `cordis`, `cordis-plugin`, `vision`,
+  `vision-translation`, `visual-primitives`, `mcp`, `grounding`.
+
+The dsh profile installs the plugin by package name (`vision-translation-dsh`)
+via the [bundle patch](#install), so discoverability does not affect the
+plugin id or tool id (`vision-translate`).
+
 ## How it works
 
 The plugin is the thin non-Python shell the architecture prescribes
