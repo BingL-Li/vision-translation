@@ -355,6 +355,4 @@ Core changes receive high-threshold review, while Bridge contributions use a low
 
 Core 变更采用高门槛审查，Bridge 贡献采用低门槛审查。详见 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [ADAPTERS.md](ADAPTERS.md)。
 
-MIT © 2026 Binglun Li.
-
-MIT © 2026 Binglun Li。
+MIT © 2026 Binglun Li. / MIT © 2026 Binglun Li。
