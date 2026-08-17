@@ -104,6 +104,43 @@ The repository root is both a Hermes plugin package and a directory named `visio
 
 仓库根既是 Hermes 插件包，目录名 `vision-translation` 又包含连字符。根 `__init__.py` 因此使用“先相对导入、失败后绝对导入”的双模式，`pyproject.toml` 把根目录加入 pytest 的 `pythonpath`。不要把该 `try/except ImportError` 简化为纯相对导入，否则 pytest 收集会出现 `attempted relative import with no known parent package`。
 
+## Rule: Host plugin copies are updated by git, never by file copy
+
+## 规则：宿主插件副本只用 git 更新，绝不文件拷贝
+
+A host that installs this repository directly as a plugin (e.g. Hermes:
+`~/.hermes/plugins/vision-translation`) keeps a **git clone** of the repo and
+must refresh it through git only:
+
+```bash
+git fetch origin
+git checkout -B main origin/main
+```
+
+Never sync by copying files from another working tree (`cp -r`, rsync, etc.).
+A file copy silently drops local divergence, breaks the link to the upstream
+history, and turns the next `git pull` into a conflict — the copy then drifts
+from the release, and bugs fixed upstream silently come back on that host.
+This convention is enforced by the release loop: `adapters/dsh/upgrade.sh`
+covers the npm/dsh delivery leg and `adapters/hermes/upgrade.sh` covers the
+git/Hermes delivery leg. Both must run for a release to reach every host.
+
+宿主直接以插件形式安装本仓库时（例如 Hermes 的
+`~/.hermes/plugins/vision-translation`），保留的是仓库的 **git clone**，只能
+通过 git 更新：
+
+```bash
+git fetch origin
+git checkout -B main origin/main
+```
+
+绝不要从别的工作区用文件拷贝（`cp -r`、rsync 等）同步。文件拷贝会静默丢弃
+本地差异、切断与上游历史的联系，并让下一次 `git pull` 变成冲突——副本从此
+与发布版本脱节，已在上游修复的 bug 会在该宿主静默复发。发布循环强制执行此
+约定：`adapters/dsh/upgrade.sh` 负责 npm/dsh 交付侧，
+`adapters/hermes/upgrade.sh` 负责 git/Hermes 交付侧，两侧都执行一次，发布
+才算送达所有宿主。
+
 ## Add a Bridge
 
 ## 增加 Bridge
