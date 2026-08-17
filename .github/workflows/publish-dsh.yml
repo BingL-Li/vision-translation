@@ -62,6 +62,10 @@ jobs:
         working-directory: adapters/dsh
         run: npm pack --dry-run
 
+      - name: Pre-publish isolated smoke test
+        working-directory: adapters/dsh
+        run: npm run smoke
+
       - name: Publish to npm
         working-directory: adapters/dsh
         run: npm publish --access public
