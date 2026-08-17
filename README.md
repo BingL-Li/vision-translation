@@ -53,6 +53,59 @@ adapters/_template/     Community Bridge template (uses the CLI)
 
 ## 快速开始
 
+
+### Configuration
+
+### 配置
+
+The auxiliary VLM channel is configured with three environment variables. All three keep OpenRouter-compatible defaults, so existing users need zero migration:
+
+辅助 VLM 通道由三个环境变量配置，默认值保持 OpenRouter 兼容，老用户零迁移成本：
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VISION_TRANSLATE_API_KEY` | *(fallback: `OPENROUTER_API_KEY`)* | API key for the auxiliary VLM; the new name takes priority |
+| `VISION_TRANSLATE_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenAI-compatible `/chat/completions` endpoint |
+| `VISION_TRANSLATE_VLM` | `xiaomi/mimo-v2.5` | Model name sent to the endpoint |
+
+| 环境变量 | 默认值 | 作用 |
+|---|---|---|
+| `VISION_TRANSLATE_API_KEY` | （回退 `OPENROUTER_API_KEY`） | 辅助 VLM 的 API key；新名字优先 |
+| `VISION_TRANSLATE_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenAI 兼容的 `/chat/completions` 端点 |
+| `VISION_TRANSLATE_VLM` | `xiaomi/mimo-v2.5` | 发送给端点的模型名 |
+
+`OPENROUTER_API_KEY` is still supported as a legacy fallback. When both key names are set, `VISION_TRANSLATE_API_KEY` wins.
+
+`OPENROUTER_API_KEY` 继续作为旧名字回退支持；两个 key 都设置时，`VISION_TRANSLATE_API_KEY` 优先。
+
+Any **OpenAI-compatible `/chat/completions` endpoint** works — OpenAI, DeepSeek, opencode, vLLM, Ollama, LiteLLM, and self-hosted gateways all speak this protocol. The Core does not translate between protocols, so only OpenAI-compatible endpoints are supported.
+
+任何 **OpenAI 兼容的 `/chat/completions` 端点**都可以使用——OpenAI、DeepSeek、opencode、vLLM、Ollama、LiteLLM 及自建网关都使用该协议。Core 不负责协议转换，请只填写 OpenAI 兼容端点。
+
+```bash
+# Example: DeepSeek (OpenAI-compatible)
+export VISION_TRANSLATE_BASE_URL="https://api.deepseek.com/v1/chat/completions"
+export VISION_TRANSLATE_API_KEY="sk-..."
+export VISION_TRANSLATE_VLM="deepseek-chat"
+
+# Example: opencode (OpenAI-compatible gateway; host/port depend on your deployment)
+export VISION_TRANSLATE_BASE_URL="http://localhost:4096/v1/chat/completions"
+export VISION_TRANSLATE_API_KEY="opencode"
+export VISION_TRANSLATE_VLM="your-opencode-vision-model"
+
+# Example: local vLLM (OpenAI-compatible server)
+export VISION_TRANSLATE_BASE_URL="http://localhost:8000/v1/chat/completions"
+export VISION_TRANSLATE_API_KEY="EMPTY"
+export VISION_TRANSLATE_VLM="Qwen/Qwen2.5-VL-7B-Instruct"
+
+# Example: local Ollama (OpenAI-compatible endpoint)
+export VISION_TRANSLATE_BASE_URL="http://localhost:11434/v1/chat/completions"
+export VISION_TRANSLATE_API_KEY="ollama"
+export VISION_TRANSLATE_VLM="llava"
+```
+
+
+
 ### Direct CLI usage
 
 ### 直接使用 CLI
@@ -62,7 +115,7 @@ The Core needs only the Python standard library at runtime. Pillow is optional f
 Core 运行时仅依赖 Python 标准库；Pillow 是可选的图片旋转和缩放增强。
 
 ```bash
-export OPENROUTER_API_KEY=sk-...
+export VISION_TRANSLATE_API_KEY=sk-...   # or legacy OPENROUTER_API_KEY
 python cli.py path/to/image.jpg "What is the layout?"
 ```
 
@@ -202,7 +255,7 @@ Implement the host integration, add a README and offline smoke test, register it
 
 1. The Bridge receives an image path, question, and optional parameters from the Agent.
 2. The Core applies EXIF orientation and, when Pillow is available, limits the long edge to 1568 pixels.
-3. The Core sends the image to the configurable OpenRouter auxiliary VLM (default `xiaomi/mimo-v2.5`, override with `VISION_TRANSLATE_VLM`).
+3. The Core sends the image to the configured OpenAI-compatible auxiliary VLM endpoint (default model `xiaomi/mimo-v2.5` on OpenRouter; override with `VISION_TRANSLATE_VLM`, `VISION_TRANSLATE_BASE_URL`, `VISION_TRANSLATE_API_KEY`).
 4. The Core parses JSON defensively, validates and normalizes object boxes, clamps out-of-range coordinates with warnings, and drops zero-area or non-finite boxes.
 5. The Core computes `left_of / right_of / above / below / inside / overlaps` from geometry instead of asking the VLM to guess.
 6. The Core renders a `<vision-context>` of at most 2000 characters, preserving primitives and relations first and trimming descriptions when necessary.
@@ -210,7 +263,7 @@ Implement the host integration, add a README and offline smoke test, register it
 
 1. Bridge 接收 Agent 给出的图片路径、问题和可选参数。
 2. Core 处理 EXIF 方向，并在 Pillow 可用时将长边限制为 1568 像素。
-3. Core 把图片交给可配置的 OpenRouter 辅助 VLM（默认 `xiaomi/mimo-v2.5`，可由 `VISION_TRANSLATE_VLM` 覆盖）。
+3. Core 把图片交给配置的 OpenAI 兼容辅助 VLM 端点（默认 OpenRouter 的 `xiaomi/mimo-v2.5`；可通过 `VISION_TRANSLATE_VLM`、`VISION_TRANSLATE_BASE_URL`、`VISION_TRANSLATE_API_KEY` 覆盖）。
 4. Core 容错解析 JSON，校验并规范化对象框；坐标越界会被钳制并产生警告，零面积或非有限坐标会被丢弃。
 5. Core 根据几何关系计算 `left_of / right_of / above / below / inside / overlaps`，而不是让 VLM 猜关系。
 6. Core 渲染不超过 2000 字符的 `<vision-context>`；优先保留基元和关系，超限时先裁剪描述文本。
@@ -226,7 +279,7 @@ Implement the host integration, add a README and offline smoke test, register it
 - **Fail closed:** after three invalid VLM outputs, return `unavailable`; never inject plausible empty context or fabricated content. Up to three image requests may be sent on this path.
 - **Testable Core:** importing `vision_translation.py` performs no network request, argparse work, or output; HTTP at the VLM boundary can be mocked.
 - **Extensible Bridge:** host lifecycle, attachment format, and tool protocol belong to Bridges; visual semantics, parsing, and geometry belong to the Core.
-- **Privacy boundary:** images are sent to the configured OpenRouter VLM, not the main text model; confirm the data policy for your use case.
+- **Privacy boundary:** images are sent to the configured OpenAI-compatible VLM endpoint, not the main text model; confirm the data policy for your use case.
 
 - **统一坐标契约：** `norm-1000`、`xyxy`，左上角 `(0, 0)`，右下角 `(1000, 1000)`。
 - **诚实 Grounding：** 坐标是 VLM 按提示生成，不是原生检测器输出，因此明确标记为 `grounding: prompted`。
@@ -234,7 +287,7 @@ Implement the host integration, add a README and offline smoke test, register it
 - **失败关闭：** 三次无效 VLM 输出后返回 `unavailable`，绝不注入看似合理的空上下文或编造内容；失败路径最多会发送三次带图请求，需留意成本。
 - **Core 可测试：** `vision_translation.py` 导入时无网络、无 argparse、无输出；测试可以在 HTTP 边界 Mock VLM。
 - **Bridge 可扩展：** 宿主生命周期、附件格式、工具协议属于 Bridge；视觉语义、解析和几何只属于 Core。
-- **隐私边界：** 图片会发送到配置的 OpenRouter VLM，不会发送给主文本模型；使用前应确认数据策略满足场景。
+- **隐私边界：** 图片会发送到配置的 OpenAI 兼容 VLM 端点，不会发送给主文本模型；使用前应确认数据策略满足场景。
 
 ## Example output
 
@@ -290,12 +343,12 @@ visible_text: Submit
 ## 局限
 
 - Grounding comes from VLM prompting rather than a native detector: it is useful for layout, UI, and scene understanding, but not guaranteed to be pixel-perfect.
-- The selected OpenRouter VLM must support image input; check its `input_modalities` before switching models.
+- The selected OpenAI-compatible VLM must support image input; check its `input_modalities` before switching models.
 - The main model must reliably understand coordinate text and spatial relations. DeepSeek models were the initial target, but the Core is model-agnostic.
 - The MCP Bridge currently accepts local file paths. Hosts that provide only in-memory attachments and no shared filesystem need a native Bridge or attachment conversion.
 
 - Grounding 来自 VLM 提示而非原生检测器，适合布局、UI 和场景理解，但不保证像素级准确。
-- 需要支持图片输入的 OpenRouter VLM；更换模型前应核对其 `input_modalities`。
+- 需要支持图片输入的 OpenAI 兼容 VLM；更换模型前应核对其 `input_modalities`。
 - 主模型需要能可靠理解坐标文本和空间关系；DeepSeek 系列是最初目标，但 Core 与主 Agent 模型无关。
 - MCP Bridge 当前接收本地文件路径；只提供内存附件且不共享文件系统的宿主需要自行增加原生 Bridge 或附件转换。
 

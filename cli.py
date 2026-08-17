@@ -66,28 +66,50 @@ def _load_env_key(name: str) -> Optional[str]:
     return None
 
 
-def _key_status() -> Dict[str, Any]:
-    env_val = os.environ.get("OPENROUTER_API_KEY", "")
-    if env_val:
-        return {"present": True, "source": "env"}
+def _key_source(name: str) -> Optional[str]:
+    """Where a key/value comes from: process env, or one of the .env files."""
+    if os.environ.get(name):
+        return "env"
     for p in (Path.home() / ".hermes" / ".env", Path.home() / ".env"):
         if p.is_file():
             try:
-                if any(l.strip().startswith("OPENROUTER_API_KEY=")
+                if any(l.strip().startswith(name + "=")
                        for l in p.read_text(encoding="utf-8", errors="replace").splitlines()):
-                    return {"present": True, "source": str(p)}
+                    return str(p)
             except (OSError, UnicodeDecodeError):
                 pass
-    return {"present": False, "source": None}
+    return None
+
+
+def _key_status() -> Dict[str, Any]:
+    """Check both VLM key names; the new name wins when both are present."""
+    for label, name in (("vision_translate", "VISION_TRANSLATE_API_KEY"),
+                        ("openrouter", "OPENROUTER_API_KEY")):
+        source = _key_source(name)
+        if source:
+            return {"present": True, "source": source, "key_source": label}
+    return {"present": False, "source": None, "key_source": "none"}
 
 
 def _ensure_key() -> None:
-    """Set OPENROUTER_API_KEY into the process env if found on disk, so the
-    core (which reads os.environ) works for adapters that only pass argv."""
+    """Expose .env-configured VLM keys/base URL to the core's process env.
+
+    New key name wins when both are configured; the legacy OpenRouter key is
+    still written so the core fallback keeps working for adapters that only
+    pass argv and have no process environment of their own.
+    """
+    if not os.environ.get("VISION_TRANSLATE_API_KEY"):
+        k = _load_env_key("VISION_TRANSLATE_API_KEY")
+        if k:
+            os.environ["VISION_TRANSLATE_API_KEY"] = k
     if not os.environ.get("OPENROUTER_API_KEY"):
         k = _load_env_key("OPENROUTER_API_KEY")
         if k:
             os.environ["OPENROUTER_API_KEY"] = k
+    if not os.environ.get("VISION_TRANSLATE_BASE_URL"):
+        v = _load_env_key("VISION_TRANSLATE_BASE_URL")
+        if v:
+            os.environ["VISION_TRANSLATE_BASE_URL"] = v
 
 
 # --------------------------------------------------------------------------- #
@@ -100,7 +122,7 @@ def _classify(err: Exception) -> Dict[str, Any]:
     if isinstance(err, ValueError):  # empty image, bad base64, …
         return {"status": "unavailable", "reason": "invalid_image", "message": msg}
     if isinstance(err, RuntimeError):
-        if "OPENROUTER_API_KEY" in msg:
+        if "VISION_TRANSLATE_API_KEY" in msg or "OPENROUTER_API_KEY" in msg:
             return {"status": "unavailable", "reason": "no_api_key", "message": msg}
         if "HTTP 429" in msg:
             return {"status": "unavailable", "reason": "rate_limited", "message": msg}
@@ -184,7 +206,8 @@ def _cmd_self_check() -> int:
         payload["unavailable"] = {"reason": "no_api_key"}
     payload["checks"] = {
         "openrouter_key": key["present"],
-        "key_source": key["source"],
+        "key_source": key["key_source"],
+        "key_origin": key["source"],
         "core_import": "ok",
     }
     return _emit(payload, 0)

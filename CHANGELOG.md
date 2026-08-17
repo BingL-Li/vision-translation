@@ -8,6 +8,13 @@
 
 ### 新增
 
+- **VLM 通道配置化（OpenAI 兼容端点三件套）**：Core 的 `_call` 现在优先读取
+  `VISION_TRANSLATE_BASE_URL` 与 `VISION_TRANSLATE_API_KEY`，并回退到
+  `OPENROUTER_API_KEY` / 默认 OpenRouter 地址，任何 OpenAI 兼容的
+  `/chat/completions` 端点（OpenAI、DeepSeek、opencode、vLLM、Ollama、
+  LiteLLM 等）都可直接使用；CLI 的 `_key_status`、`_ensure_key`、
+  `--self-check` 同步支持两个 key 名与 `.env` 中的 base URL。默认值保持
+  OpenRouter 向后兼容，老用户零迁移成本。
 - **MCP Bridge**（`adapters/mcp/`）：以 stdio MCP Server 暴露单一
   `vision_translate` 工具，支持 dsh、Claude Code、Cursor、Hermes 等任意
   MCP Host。Server 直接导入 Core 并复用 `cli._classify`，不复制逻辑；
