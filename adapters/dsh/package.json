@@ -1,6 +1,6 @@
 {
   "name": "vision-translation-dsh",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Native dsh (DeepSeek Harness) Cordis plugin adapter for vision-translation: grounds images into <vision-context> via the Python CLI (PROTOCOL v1). Spawns cli.py, never re-implements core logic.",
   "type": "module",
   "main": "lib/index.js",

@@ -2,6 +2,29 @@
 
 All notable changes to the `vision-translation-dsh` native dsh adapter.
 
+## [0.2.0] — 2026-08-17
+
+### Fixed
+
+- **Bundled Python core** (`python/` in the tarball): `prepack` hook
+  (`scripts/bundle-core.sh`) copies `cli.py` + `vision_translation.py` into
+  the package, and `resolveCli` now finds the bundled CLI out of the box —
+  a fresh `npm install` no longer throws `CliMissingError` (npm supply-chain
+  audit finding, high).
+- **Tightened release tag rule**: `publish-dsh.yml` now triggers only on
+  semantic-version tags (`v[0-9]+.[0-9]+.[0-9]+`), not any `v*`.
+- **Pinned Actions SHAs**: `actions/checkout` / `actions/setup-node` pinned
+  to their v4 tag commit SHAs.
+
+### Added
+
+- **Pre-publish isolated smoke test** (`scripts/pre-publish-smoke.sh`,
+  `npm run smoke`): packs the real tarball, installs into a clean temp dir,
+  asserts the bundled Python core, and probes `resolveCli` with no config —
+  wired into the publish workflow before `npm publish`.
+- The bundled core includes the VLM endpoint configuration (OpenAI-compatible
+  base URL / API key env vars), so the npm package inherits it.
+
 ## [0.1.0] — 2026-08-15
 
 ### Added
