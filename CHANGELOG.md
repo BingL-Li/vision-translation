@@ -4,6 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，版本遵循
 [SemVer](https://semver.org/)。
 
+## [0.2.2] — 2026-08-18
+
+### 变更
+
+- **Hermes 侧发布回归官方机制**：删除自造的 `adapters/hermes/upgrade.sh`
+  （与 Hermes 原生 `hermes plugins update` 重复且功能更弱——官方命令还负责
+  安装元数据同步、过期字节码清理、`.example` 文件拷贝和新增能力重授权）。
+  Hermes 插件升级现为两条官方命令：`hermes plugins update
+  vision-translation` + `hermes gateway restart`。
+- README / ADAPTERS / CONTRIBUTING 的发布循环文档同步改为以官方命令为准，
+  保留 `adapters/dsh/upgrade.sh`（dsh 无原生 update 命令，脚本是 `dsh
+  plugin add` 的薄封装，合理保留）。
+
 ## [0.2.1] — 2026-08-18
 
 ### 修复

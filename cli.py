@@ -36,8 +36,8 @@ from typing import Any, Dict, List, Optional
 import vision_translation as vt  # the one and only core; import-pure
 
 PROTOCOL_VERSION = 1
-CORE_VERSION = "0.2.1"  # keep in sync with plugin.yaml
-CLI_VERSION = "0.2.1"
+CORE_VERSION = "0.2.2"  # keep in sync with plugin.yaml
+CLI_VERSION = "0.2.2"
 
 _USAGE = (
     f"usage: {sys.argv[0]} <image_path> [\"question\"]\n"

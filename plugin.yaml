@@ -1,5 +1,5 @@
 name: vision-translation
-version: 0.2.1
+version: 0.2.2
 description: "Translation with Visual Primitives — image -> visual primitives (bbox) + spatial relations + OCR as <vision-context> text for text-only models. Core (vision_translation.py) + cross-language CLI protocol (cli.py, PROTOCOL v1) + thin adapters. Hermes native plugin (in-process), works with any auxiliary VLM. / 视觉基元翻译——将图片转换为供纯文本模型使用的 <vision-context> 文本，包含视觉基元（bbox）、空间关系和 OCR。由 Core（vision_translation.py）、跨语言 CLI 协议（cli.py、PROTOCOL v1）和薄适配器组成；Hermes 原生插件（进程内）可配合任意辅助 VLM 使用。"
 author: "Binglun Li (BingL-Li)"
 enabled: true
