@@ -1,0 +1,65 @@
+name: Publish dsh plugin
+
+# Publishes the native dsh Cordis plugin (adapters/dsh) to npm.
+#
+# Trigger: pushing a semantic-version Git tag like `v0.1.0` (the tag is the
+# release gate — see CONTRIBUTING.md). Plain pushes and PR merges to main run
+# CI but DO NOT publish; a maintainer cuts a tag when a version is ready.
+#
+# Requires one repository secret: NPM_TOKEN — an npm token that can publish
+# `vision-translation-dsh` without interactive 2FA: either an "Automation"
+# token, or a Granular Access Token with the "Bypass 2FA when using this
+# token" checkbox ticked (read/write on the package, or all packages).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    name: Publish vision-translation-dsh
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Derive tag version
+        id: version
+        run: |
+          # Strip a leading `v` (and any optional `dsh-` prefix) from the tag.
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#dsh-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches package.json version
+        working-directory: adapters/dsh
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag version '$TAG_VERSION' != adapters/dsh/package.json version '$PKG_VERSION'"
+            echo "Bump adapters/dsh/package.json before cutting the tag."
+            exit 1
+          fi
+          echo "Publishing $PKG_VERSION"
+
+      - name: Run adapter tests
+        working-directory: adapters/dsh
+        run: npm test
+
+      - name: Verify publishable tarball (dry run)
+        working-directory: adapters/dsh
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        working-directory: adapters/dsh
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
