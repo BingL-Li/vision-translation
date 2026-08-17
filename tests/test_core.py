@@ -162,6 +162,74 @@ def test_analyze_ok_path(monkeypatch, tmp_path):
     assert "<vision-context>" in ctx
     assert "v1" in ctx and "box" in ctx
 
+
+# --------------------------------------------------------------------------- #
+# VLM endpoint config: _base_url + _call key resolution (offline urlopen mock)
+# --------------------------------------------------------------------------- #
+class _FakeUrlopenResponse:
+    def __init__(self, payload: dict):
+        self._data = json.dumps(payload).encode("utf-8")
+
+    def read(self) -> bytes:
+        return self._data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _mock_urlopen(monkeypatch, seen):
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        seen["auth"] = req.get_header("Authorization")
+        return _FakeUrlopenResponse({"ok": True})
+
+    monkeypatch.setattr(vt.urllib.request, "urlopen", fake_urlopen)
+
+
+def test_call_uses_vision_translate_base_url(monkeypatch):
+    monkeypatch.setenv("VISION_TRANSLATE_BASE_URL", "https://example.com/v1/chat/completions")
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-vt")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    seen: dict = {}
+    _mock_urlopen(monkeypatch, seen)
+    assert vt._call("m", [], retries=0) == {"ok": True}
+    assert seen["url"] == "https://example.com/v1/chat/completions"
+    assert seen["auth"] == "Bearer sk-vt"
+
+
+def test_call_openrouter_key_backward_compatible(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or")
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
+    monkeypatch.delenv("VISION_TRANSLATE_BASE_URL", raising=False)
+
+    seen: dict = {}
+    _mock_urlopen(monkeypatch, seen)
+    assert vt._call("m", [], retries=0) == {"ok": True}
+    assert seen["url"] == vt.OR_BASE
+    assert seen["auth"] == "Bearer sk-or"
+
+
+def test_call_new_key_takes_priority(monkeypatch):
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-new")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-old")
+
+    seen: dict = {}
+    _mock_urlopen(monkeypatch, seen)
+    vt._call("m", [], retries=0)
+    assert seen["auth"] == "Bearer sk-new"
+
+
+def test_call_missing_key_mentions_both_names(monkeypatch):
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="VISION_TRANSLATE_API_KEY"):
+        vt._call("m", [], retries=0)
+
+
 # --------------------------------------------------------------------------- #
 # P0-1: normalize_bbox zero-area check must run after clamp + round
 # --------------------------------------------------------------------------- #

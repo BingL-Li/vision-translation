@@ -13,6 +13,7 @@ Two layers:
      nothing else) exactly as a TS/Rust/Go adapter would consume it.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -119,6 +120,7 @@ def test_unavailable_no_api_key(run_cli, fake_image, monkeypatch):
 
     monkeypatch.setattr(cli_mod, "_load_env_key", lambda name: "")  # no key anywhere
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
     payload, code = run_cli(fake_image, monkeypatch=monkeypatch)
     assert code == 0  # fail-closed is a LEGAL result: exit 0
     assert payload["status"] == "unavailable"
@@ -376,3 +378,87 @@ def test_load_env_key_env_priority(monkeypatch, tmp_path):
 
     env_file.unlink()
     assert cli_mod._load_env_key("OPENROUTER_API_KEY") is None
+
+
+# --------------------------------------------------------------------------- #
+# VLM endpoint config: --self-check key_source + .env passthrough
+# --------------------------------------------------------------------------- #
+def test_self_check_vision_translate_key(run_cli, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-vt")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    payload, code = run_cli("--self-check", monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["protocol"] == 1
+    assert payload["status"] == "ok"
+    assert payload["checks"]["openrouter_key"] is True
+    assert payload["checks"]["key_source"] == "vision_translate"
+
+
+def test_self_check_openrouter_key(run_cli, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or")
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
+
+    payload, code = run_cli("--self-check", monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["protocol"] == 1
+    assert payload["status"] == "ok"
+    assert payload["checks"]["openrouter_key"] is True
+    assert payload["checks"]["key_source"] == "openrouter"
+
+
+def test_self_check_new_key_wins_when_both_set(run_cli, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-new")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-old")
+
+    payload, code = run_cli("--self-check", monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["protocol"] == 1
+    assert payload["status"] == "ok"
+    assert payload["checks"]["openrouter_key"] is True
+    assert payload["checks"]["key_source"] == "vision_translate"
+
+
+def test_ensure_key_passes_new_key_and_base_url_from_dotenv(monkeypatch, tmp_path):
+    import cli as cli_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("VISION_TRANSLATE_BASE_URL", raising=False)
+
+    env_dir = tmp_path / ".hermes"
+    env_dir.mkdir()
+    (env_dir / ".env").write_text(
+        "VISION_TRANSLATE_API_KEY=sk-dotenv\n"
+        "VISION_TRANSLATE_BASE_URL=https://example.com/v1/chat/completions\n"
+    )
+
+    cli_mod._ensure_key()
+    assert os.environ["VISION_TRANSLATE_API_KEY"] == "sk-dotenv"
+    assert os.environ["VISION_TRANSLATE_BASE_URL"] == "https://example.com/v1/chat/completions"
+
+
+def test_classify_missing_key_covers_both_names():
+    import cli as cli_mod
+
+    assert cli_mod._classify(
+        RuntimeError("VISION_TRANSLATE_API_KEY or OPENROUTER_API_KEY environment variable is not set")
+    )["reason"] == "no_api_key"
+    assert cli_mod._classify(
+        RuntimeError("OPENROUTER_API_KEY environment variable is not set")
+    )["reason"] == "no_api_key"
+
+
+def test_unavailable_no_api_key_both_names_absent(run_cli, fake_image, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    payload, code = run_cli(fake_image, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "no_api_key"

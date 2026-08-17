@@ -12,7 +12,8 @@ Design constraints (shared by the plugin and the CLI demo):
   (grounding: prompted), not a native detector.
 - Hard output caps: coordinates are kept first, then relations, then prose.
 Dependencies: stdlib urllib only (Pillow optional, used for downscaling).
-Key: OPENROUTER_API_KEY from the process environment (loaded by Hermes/caller).
+Key: VISION_TRANSLATE_API_KEY first, then OPENROUTER_API_KEY (legacy fallback).
+Base URL: VISION_TRANSLATE_BASE_URL first, then OR_BASE (OpenRouter default).
 """
 
 from __future__ import annotations
@@ -78,12 +79,19 @@ def image_to_data_url(path: str, max_edge: int = MAX_EDGE) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# OpenRouter call (pure stdlib, retries + backoff)
+# OpenAI-compatible call (pure stdlib, retries + backoff)
 # --------------------------------------------------------------------------- #
+def _base_url() -> str:
+    """OpenAI-compatible endpoint; defaults to OpenRouter for backwards compat."""
+    return os.environ.get("VISION_TRANSLATE_BASE_URL", OR_BASE)
+
+
 def _call(model: str, messages: list, *, json_mode: bool = False, retries: int = RETRIES) -> dict:
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    api_key = os.environ.get("VISION_TRANSLATE_API_KEY") or os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
+        raise RuntimeError(
+            "VISION_TRANSLATE_API_KEY or OPENROUTER_API_KEY environment variable is not set"
+        )
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -91,9 +99,10 @@ def _call(model: str, messages: list, *, json_mode: bool = False, retries: int =
     payload = {"model": model, "messages": messages, "max_tokens": 4096}
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    base_url = _base_url()
     last_err: Optional[Exception] = None
     for attempt in range(retries + 1):
-        req = urllib.request.Request(OR_BASE, data=json.dumps(payload).encode("utf-8"),
+        req = urllib.request.Request(base_url, data=json.dumps(payload).encode("utf-8"),
                                      headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
