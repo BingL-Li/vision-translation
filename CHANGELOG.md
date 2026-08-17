@@ -4,6 +4,33 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，版本遵循
 [SemVer](https://semver.org/)。
 
+## [0.2.1] — 2026-08-18
+
+### 修复
+
+- **Cloudflare-protected 网关适配**（`e171c9e`）：Core 使用 urllib 默认
+  User-Agent 调 opencode.ai 等 Cloudflare 保护的 OpenAI 兼容端点时被
+  HTTP 403 error 1010 拦截——请求头增加 `User-Agent: curl/8.5.0`
+  （实测 UA 字符串是唯一判定变量，TLS 指纹不受影响）。
+- **VLM 三件套全链注入**（`e171c9e`）：`cli._ensure_key` 此前只注入
+  `VISION_TRANSLATE_API_KEY` 与 `VISION_TRANSLATE_BASE_URL`，漏了
+  `VISION_TRANSLATE_VLM`——网关环境缺该变量时静默落回带 OpenRouter 前缀
+  的默认模型名（`xiaomi/mimo-v2.5`），在裸模型 ID 端点（如 opencode-go 的
+  `mimo-v2.5`）上报 401 ModelError。`analyze()` 同样改为读取该环境变量。
+
+### 新增
+
+- **Hermes 发布交付侧**（`c1bb2b8`）：`adapters/hermes/upgrade.sh` 以 git
+  方式（fetch + checkout）刷新 Hermes 插件副本，补充发布循环缺失的第二条
+  交付腿（npm/dsh 之外）；配套 CONTRIBUTING 规则、README 与 ADAPTERS 双翼
+  发布循环文档。搭配 `adapters/dsh/upgrade.sh` 一起执行即完成一次双侧发布。
+
+### 变更
+
+- 修复 CHANGELOG 中 0.2.0 版本号重复使用的问题：2026-08-15 的原 0.2.0
+  条目（CLI 协议 Bridge，从未发布）改标为 `0.2.0-rc.1`；0.2.0 正式版
+  仅保留 2026-08-17 的 VLM 配置化 + MCP Bridge + dsh 插件条目。
+
 ## [0.2.0] — 2026-08-17
 
 ### 新增
@@ -40,7 +67,9 @@
 - `adapters/mcp/requirements.txt` 限制为 `mcp>=1.0,<2.0`，因为 2.0 移除了
   当前 Server 使用的 `mcp.server.fastmcp` API。
 
-## [0.2.0] — 2026-08-15
+## [0.2.0-rc.1] — 2026-08-15
+
+> 0.2.0 的候选版本（CLI 协议 Bridge），从未发布到 npm；正式 0.2.0 见 2026-08-17 条目。
 
 ### 新增
 
