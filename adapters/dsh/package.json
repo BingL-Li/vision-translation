@@ -16,6 +16,7 @@
   },
   "files": [
     "lib/",
+    "python/",
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md"
@@ -34,7 +35,9 @@
   },
   "devDependencies": {},
   "scripts": {
-    "test": "node --test \"tests/**/*.test.js\""
+    "test": "node --test \"tests/**/*.test.js\"",
+    "prepack": "bash scripts/bundle-core.sh",
+    "smoke": "bash scripts/pre-publish-smoke.sh"
   },
   "repository": {
     "type": "git",

@@ -22,8 +22,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -110,13 +111,33 @@ test("resolveCli: env VISION_TRANSLATION_CLI when config cliPath empty", () => {
   assert.equal(r.source, "env.VISION_TRANSLATION_CLI");
 });
 
-test("resolveCli: package-relative fallback when neither set", () => {
-  const r = resolveCli({ cliPath: "", pythonBin: "python3" }, {});
+test("resolveCli: bundled python/cli.py wins when no config/env (D1/B1)", async (t) => {
+  // Simulate the npm install layout: <pkg>/python/cli.py exists. The in-repo
+  // `../../cli.py` also exists here, but the bundled CLI must be preferred.
+  const root = await mkdtemp(join(tmpdir(), "vt-dsh-bundled-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const pkgRoot = join(root, "adapters", "dsh");
+  await mkdir(join(pkgRoot, "python"), { recursive: true });
+  await writeFile(join(pkgRoot, "python", "cli.py"), "# bundled cli\n");
+  await writeFile(join(root, "cli.py"), "# repo cli\n");
+
+  const r = resolveCli({ cliPath: "", pythonBin: "python3" }, {}, pkgRoot);
+  assert.equal(r.source, "package python/cli.py");
+  assert.ok(r.cliPath.endsWith(join("adapters", "dsh", "python", "cli.py")), r.cliPath);
+});
+
+test("resolveCli: package-relative fallback when bundled cli is absent (B4)", async (t) => {
+  // In-repo development layout: adapters/dsh has no python/ bundle yet, so the
+  // resolver falls back to the repository-root cli.py.
+  const root = await mkdtemp(join(tmpdir(), "vt-dsh-repo-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const pkgRoot = join(root, "adapters", "dsh");
+  await mkdir(pkgRoot, { recursive: true });
+  await writeFile(join(root, "cli.py"), "# repo cli\n");
+
+  const r = resolveCli({ cliPath: "", pythonBin: "python3" }, {}, pkgRoot);
   assert.equal(r.source, "package-relative ../../cli.py");
-  // PACKAGE_ROOT = …/adapters/dsh -> + ../../cli.py → repo root cli.py
-  const p = accessPath(r.cliPath);
-  assert.ok(p.endsWith(join("vision-translation", "cli.py")), p);
-  assert.equal(pathParts(p).includes("adapters"), false);
+  assert.equal(r.cliPath, join(root, "cli.py"));
 });
 
 test("resolveCli: empty pythonBin defaults to python3", () => {
@@ -124,11 +145,20 @@ test("resolveCli: empty pythonBin defaults to python3", () => {
   assert.equal(r.pythonBin, "python3");
 });
 
-test("resolveCli: standalone install without repo fallback -> CliMissingError (B11)", () => {
-  // Simulate an npm install outside the repo: no ../../cli.py exists.
+test("resolveCli: standalone install without any cli -> CliMissingError (B11)", async (t) => {
+  // Simulate a broken standalone npm install: neither python/cli.py nor a repo
+  // fallback exists. The error must mention the expected bundled path.
+  const root = await mkdtemp(join(tmpdir(), "vt-dsh-none-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const pkgRoot = join(root, "node_modules", "vision-translation-dsh");
+  await mkdir(pkgRoot, { recursive: true });
+
   assert.throws(
-    () => resolveCli({ cliPath: "", pythonBin: "python3" }, {}, "/nonexistent/pkg-root"),
-    (err) => err instanceof CliMissingError && /could not locate the Python CLI/.test(err.message),
+    () => resolveCli({ cliPath: "", pythonBin: "python3" }, {}, pkgRoot),
+    (err) =>
+      err instanceof CliMissingError &&
+      /could not locate the Python CLI/.test(err.message) &&
+      /npm package should bundle it at/.test(err.message),
   );
 });
 
@@ -305,12 +335,3 @@ test("MEDIA_EXT maps all dsh supported image types", () => {
   assert.equal(MEDIA_EXT["image/gif"], ".gif");
 });
 
-// --------------------------------------------------------------------------- //
-// tiny path helpers (kept local to avoid extra dependencies)
-// --------------------------------------------------------------------------- //
-function accessPath(p) {
-  return resolve(p);
-}
-function pathParts(p) {
-  return p.split(/[\\/]/);
-}
