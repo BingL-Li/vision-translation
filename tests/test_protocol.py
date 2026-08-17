@@ -21,6 +21,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+import cli  # noqa: E402
+
+CORE_VERSION = cli.CORE_VERSION  # dynamic: version bumps never break these tests
 
 
 @pytest.fixture
@@ -60,7 +65,7 @@ def test_self_check_stdout_purity():
     assert r.stderr.strip() == ""  # logs must never pollute stdout
     payload = json.loads(r.stdout.strip())
     assert payload["protocol"] == 1
-    assert payload["core_version"] == "0.2.0"
+    assert payload["core_version"] == CORE_VERSION
     assert payload["status"] in ("ok", "unavailable")  # key present or not
     assert "checks" in payload and "openrouter_key" in payload["checks"]
 
@@ -72,8 +77,8 @@ def test_protocol_version_subprocess():
     payload = json.loads(r.stdout.strip())
     assert payload["protocol"] == 1
     assert payload["status"] == "ok"
-    assert payload["core_version"] == "0.2.0"
-    assert payload["cli"] == "0.2.0"
+    assert payload["core_version"] == CORE_VERSION
+    assert payload["cli"] == CORE_VERSION
 
 
 def test_usage_error_no_input(run_cli):
@@ -112,7 +117,7 @@ def test_ok_payload(run_cli, fake_image, monkeypatch):
     assert payload["status"] == "ok"
     assert "<vision-context>" in payload["context"]
     assert payload["model"]  # echoes the model actually used
-    assert payload["core_version"] == "0.2.0"
+    assert payload["core_version"] == CORE_VERSION
 
 
 def test_unavailable_no_api_key(run_cli, fake_image, monkeypatch):
