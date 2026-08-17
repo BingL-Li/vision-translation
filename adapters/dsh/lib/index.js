@@ -109,7 +109,8 @@ export function apply(ctx, config = {}) {
       }),
       async execute(args, exec) {
         // B11 discovery: config cliPath -> env VISION_TRANSLATION_CLI ->
-        // package-relative ../../cli.py. Throws a descriptive CliMissingError.
+        // bundled python/cli.py -> package-relative ../../cli.py. Throws a
+        // descriptive CliMissingError when none of them resolve.
         let resolved;
         try {
           resolved = resolveCli({ cliPath, pythonBin });

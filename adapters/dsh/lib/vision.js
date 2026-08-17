@@ -94,14 +94,15 @@ export function classifyResult(payload) {
 
 /** A concise, user-actionable error for CLI discovery failures (B11). */
 export class CliMissingError extends Error {
-  constructor() {
+  constructor(bundledCliPath) {
     super(
       [
         "vision-translation: could not locate the Python CLI (cli.py).",
-        "Provide it via any of:",
+        "The npm package should bundle it at:",
+        `  ${bundledCliPath}`,
+        "If that file is missing, reinstall `vision-translation-dsh` (or provide the CLI explicitly):",
         "  - plugin config  `cliPath` (absolute path to cli.py)",
         "  - env            `VISION_TRANSLATION_CLI` (absolute path to cli.py)",
-        "  - repo fallback  package-relative `../../cli.py` (adapters/dsh layout)",
         "and ensure `pythonBin` (default \"python3\") can run it.",
       ].join("\n"),
     );
@@ -128,16 +129,17 @@ export class CliOutputError extends Error {
 /**
  * Resolve the python binary + cli.py path using the documented discovery order
  * (config `cliPath`/`pythonBin` → env `VISION_TRANSLATION_CLI` →
- * package-relative `../../cli.py` + `python3`). Throws CliMissingError (B11)
- * when nothing resolves.
+ * bundled `python/cli.py` inside the installed npm package →
+ * package-relative `../../cli.py` for in-repo development + `python3`).
+ * Throws CliMissingError (B11) when nothing resolves.
  *
  * @param config  plugin config ({ cliPath, pythonBin }).
  * @param envOverride optional injected env (default process.env; test seam).
  * @param rootOverride optional package-root override (default PACKAGE_ROOT;
- *        test seam) used to compute the package-relative fallback.
+ *        test seam) used to compute the bundled and package-relative fallbacks.
  * @returns {{ pythonBin: string, cliPath: string, source: string }}
- * @throws {CliMissingError} when nothing resolves and the package-relative
- *         fallback does not exist on disk (B11).
+ * @throws {CliMissingError} when neither the bundled CLI nor the package-relative
+ *         fallback exists on disk (B11).
  */
 export function resolveCli(config, envOverride = process.env, rootOverride = PACKAGE_ROOT) {
   const cfgCli = config?.cliPath;
@@ -151,16 +153,25 @@ export function resolveCli(config, envOverride = process.env, rootOverride = PAC
   if (typeof envCli === "string" && envCli.trim() !== "") {
     return { pythonBin, cliPath: envCli, source: "env.VISION_TRANSLATION_CLI" };
   }
-  // Package-relative fallback: from the package root, `../../cli.py` reaches
-  // the repo root cli.py in the in-repo `adapters/dsh` layout. When the
-  // package is installed standalone (no repo around it), this path won't
-  // exist — fail with the actionable CliMissingError instead of letting the
-  // spawn produce a cryptic "can't open file" (B11).
+
+  // 3. Bundled CLI: in the npm install layout this is
+  //    `node_modules/vision-translation-dsh/python/cli.py` (spec D1). It is
+  //    build output created by `prepack` and shipped via the `files` whitelist.
+  const bundledCli = resolve(rootOverride, "python", "cli.py");
+  if (existsSync(bundledCli)) {
+    return { pythonBin, cliPath: bundledCli, source: "package python/cli.py" };
+  }
+
+  // 4. In-repo development fallback: from the package root
+  //    (`adapters/dsh`), `../../cli.py` reaches the repository-root cli.py.
+  //    When the package is installed standalone (no repo around it), this
+  //    path won't exist — fail with the actionable CliMissingError instead of
+  //    letting the spawn produce a cryptic "can't open file" (B11).
   const fallback = resolve(rootOverride, "../../", "cli.py");
   if (existsSync(fallback)) {
     return { pythonBin, cliPath: fallback, source: "package-relative ../../cli.py" };
   }
-  throw new CliMissingError();
+  throw new CliMissingError(bundledCli);
 }
 
 /**
