@@ -184,6 +184,23 @@ hermes plugins list
 hermes tools list
 ```
 
+**Upgrading the Hermes plugin** — the Hermes copy is a git checkout and is
+refreshed by git, never by copying files. Run the release-loop script for the
+Hermes leg, then restart Hermes:
+
+```bash
+./adapters/hermes/upgrade.sh             # git fetch + checkout -B main origin/main
+hermes gateway restart                   # in-process import loads the new code
+```
+
+**升级 Hermes 插件** — Hermes 副本是 git 检出，只能通过 git 刷新，绝不能文件
+拷贝。运行发布循环中 Hermes 一侧的脚本，然后重启 Hermes：
+
+```bash
+./adapters/hermes/upgrade.sh             # git fetch + checkout -B main origin/main
+hermes gateway restart                   # 进程内 import 加载新代码
+```
+
 The `vision_translate` tool in the `vision_translation` toolset accepts:
 
 `vision_translation` toolset 中的 `vision_translate` 工具参数如下：

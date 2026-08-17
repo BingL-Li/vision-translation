@@ -116,6 +116,34 @@ This is intentionally a low-barrier contribution path: the community can give a 
 5. **声明兼容版本。** Bridge README 和本注册表应说明支持的协议版本。
 6. **宿主逻辑留在 Bridge。** 附件解析、工具命名、UI 展示、重连和热更新不应进入 Core。
 
+## Release loop: two delivery legs
+
+## 发布循环：两条交付侧
+
+A release (`vX.Y.Z` tag) delivers the same Core through two independent legs.
+Run **both** — a release is not complete until every host has refreshed:
+
+| Leg | Delivery path | Refresh script | Restart required |
+|---|---|---|---|
+| npm / dsh | CI publishes `vision-translation-dsh@X.Y.Z` → `dsh plugin add` | `./adapters/dsh/upgrade.sh` | dsh (Cordis reload) |
+| git / Hermes | git history → the Hermes plugin copy (`~/.hermes/plugins/vision-translation`) | `./adapters/hermes/upgrade.sh` | Hermes (in-process import) |
+
+The Hermes copy is a git checkout and must be refreshed **only via git**
+(`fetch` + `checkout -B main origin/main`), never by copying files — see
+[CONTRIBUTING.md](CONTRIBUTING.md#rule-host-plugin-copies-are-updated-by-git-never-by-file-copy).
+The two scripts otherwise behave identically: resolve the target, refresh,
+and remind you to restart the host so the new code actually loads.
+
+| 交付侧 | 路径 | 刷新脚本 | 需要重启 |
+|---|---|---|---|
+| npm / dsh | CI 发布 `vision-translation-dsh@X.Y.Z` → `dsh plugin add` | `./adapters/dsh/upgrade.sh` | dsh（Cordis 重载） |
+| git / Hermes | git 历史 → Hermes 插件副本（`~/.hermes/plugins/vision-translation`） | `./adapters/hermes/upgrade.sh` | Hermes（进程内 import） |
+
+Hermes 副本是 git 检出，只能通过 git 刷新（`fetch` + `checkout -B main
+origin/main`），绝不能文件拷贝——见
+[CONTRIBUTING.md](CONTRIBUTING.md#rule-host-plugin-copies-are-updated-by-git-never-by-file-copy)。
+两个脚本行为一致：定位目标、刷新、提示重启宿主让新代码真正加载。
+
 ## Choosing the native dsh Bridge
 
 ## dsh 原生 Bridge 的判断

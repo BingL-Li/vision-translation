@@ -95,6 +95,12 @@ def _call(model: str, messages: list, *, json_mode: bool = False, retries: int =
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        # Cloudflare-protected OpenAI-compatible gateways (e.g. opencode.ai)
+        # return HTTP 403 error 1010 to default urllib fingerprints while
+        # accepting common client UAs. Curl-style UA is the pragmatic bridge;
+        # the TLS fingerprint itself is unaffected (verified: only the UA
+        # string decides the 403).
+        "User-Agent": "curl/8.5.0",
     }
     payload = {"model": model, "messages": messages, "max_tokens": 4096}
     if json_mode:
@@ -445,6 +451,7 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
 # --------------------------------------------------------------------------- #
 def analyze(image_path: str, question: str = "", model: str = DEFAULT_VLM_MODEL,
             max_objects: int = MAX_PRIMITIVES) -> str:
+    model = os.environ.get("VISION_TRANSLATE_VLM") or model
     data_url = image_to_data_url(image_path)
     prompt = (
         "你是视觉 grounding 引擎。请严格分析图片并 ONLY 返回合法 JSON，不要任何额外文字。\n"

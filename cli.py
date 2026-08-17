@@ -110,6 +110,10 @@ def _ensure_key() -> None:
         v = _load_env_key("VISION_TRANSLATE_BASE_URL")
         if v:
             os.environ["VISION_TRANSLATE_BASE_URL"] = v
+    if not os.environ.get("VISION_TRANSLATE_VLM"):
+        v = _load_env_key("VISION_TRANSLATE_VLM")
+        if v:
+            os.environ["VISION_TRANSLATE_VLM"] = v
 
 
 # --------------------------------------------------------------------------- #
