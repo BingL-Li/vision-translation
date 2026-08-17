@@ -191,3 +191,188 @@ def test_bad_stdin_envelope_usage(run_cli, monkeypatch):
     assert code == 2
     assert payload["status"] == "error"
     assert payload["error"]["code"] == "usage"
+
+# --------------------------------------------------------------------------- #
+# P0-4: non-UTF-8 .env must never crash the CLI; stdout stays valid JSON
+# --------------------------------------------------------------------------- #
+def test_self_check_non_utf8_env(run_cli, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    env_dir = tmp_path / ".hermes"
+    env_dir.mkdir()
+    (env_dir / ".env").write_bytes(b"OPENROUTER_API_KEY=\xff\xfe\n")
+
+    payload, code = run_cli("--self-check", monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["protocol"] == 1
+    assert payload["status"] in ("ok", "unavailable")
+    assert "checks" in payload
+
+
+def test_translate_non_utf8_env_keeps_json_stdout(run_cli, fake_image, tmp_path, monkeypatch):
+    import cli as cli_mod
+    import vision_translation as vt
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    env_dir = tmp_path / ".hermes"
+    env_dir.mkdir()
+    (env_dir / ".env").write_bytes(b"OPENROUTER_API_KEY=\xff\xfe\n")
+
+    def fake_call(model, messages, **kw):
+        return {"choices": [{"message": {"content": json.dumps({
+            "summary": "mock scene",
+            "objects": [{"label": "widget", "bbox": [0, 0, 100, 100],
+                         "confidence": 0.9}],
+        })}}]}
+
+    monkeypatch.setattr(vt, "_call", fake_call)
+    payload, code = run_cli(fake_image, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "ok"
+    assert "<vision-context>" in payload["context"]
+
+
+# --------------------------------------------------------------------------- #
+# P1-1: network / upstream errors classify as unavailable/upstream, exit 0
+# --------------------------------------------------------------------------- #
+def test_unavailable_upstream_network_error(run_cli, fake_image, monkeypatch):
+    import vision_translation as vt
+
+    def fake_call(model, messages, **kw):
+        raise RuntimeError("OpenRouter call failed: upstream network error: <urlopen error timed out>")
+
+    monkeypatch.setattr(vt, "_call", fake_call)
+    payload, code = run_cli(fake_image, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "upstream"
+
+
+def test_unavailable_upstream_non_json_response(run_cli, fake_image, monkeypatch):
+    import vision_translation as vt
+
+    def fake_call(model, messages, **kw):
+        raise RuntimeError("OpenRouter call failed: upstream non-JSON response: Expecting value: line 1 column 1")
+
+    monkeypatch.setattr(vt, "_call", fake_call)
+    payload, code = run_cli(fake_image, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "upstream"
+
+
+# --------------------------------------------------------------------------- #
+# P1-2: invalid/empty base64 → unavailable/invalid_image, exit 0
+# --------------------------------------------------------------------------- #
+def test_stdin_invalid_b64_invalid_image(run_cli, monkeypatch):
+    envelope = json.dumps({"protocol": 1,
+                           "image": {"b64": "!!not-base64!!", "ext": ".png"}})
+    payload, code = run_cli(stdin_data=envelope, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "invalid_image"
+
+
+def test_stdin_empty_b64_invalid_image(run_cli, monkeypatch):
+    envelope = json.dumps({"protocol": 1,
+                           "image": {"b64": "", "ext": ".png"}})
+    payload, code = run_cli(stdin_data=envelope, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "invalid_image"
+
+
+def test_stdin_missing_image_is_usage(run_cli, monkeypatch):
+    envelope = json.dumps({"protocol": 1, "question": "no image field"})
+    payload, code = run_cli(stdin_data=envelope, monkeypatch=monkeypatch)
+    assert code == 2
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "usage"
+
+
+# --------------------------------------------------------------------------- #
+# P1-3: unreadable/empty files → unavailable/invalid_image, exit 0
+# --------------------------------------------------------------------------- #
+def test_unreadable_file_invalid_image(run_cli, tmp_path):
+    img = tmp_path / "unreadable.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+    img.chmod(0)
+
+    payload, code = run_cli(str(img))
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "invalid_image"
+
+
+def test_empty_file_invalid_image(run_cli, tmp_path):
+    img = tmp_path / "empty.jpg"
+    img.write_bytes(b"")
+
+    payload, code = run_cli(str(img))
+    assert code == 0
+    assert payload["status"] == "unavailable"
+    assert payload["unavailable"]["reason"] == "invalid_image"
+
+
+# --------------------------------------------------------------------------- #
+# P1-5: Hermes bridge failure path returns plain text (no <vision-context>)
+# --------------------------------------------------------------------------- #
+def _load_plugin_module(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "vision_translation_plugin", REPO_ROOT / "__init__.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_handler_failure_is_plain_text(monkeypatch, tmp_path):
+    mod = _load_plugin_module(monkeypatch)
+    img = tmp_path / "img.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+
+    def fake_analyze(path, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod.vt, "analyze", fake_analyze)
+    out = mod._handler({"image_path": str(img)})
+    assert "<vision-context" not in out
+    assert "vision unavailable" in out
+    assert "boom" in out
+
+
+def test_handler_success_still_returns_vision_context(monkeypatch, tmp_path):
+    mod = _load_plugin_module(monkeypatch)
+    img = tmp_path / "img.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+
+    def fake_analyze(path, **kw):
+        return "<vision-context>\nok\n</vision-context>"
+
+    monkeypatch.setattr(mod.vt, "analyze", fake_analyze)
+    out = mod._handler({"image_path": str(img)})
+    assert "<vision-context>" in out
+
+
+# --------------------------------------------------------------------------- #
+# P1-6: _load_env_key must be process-env-first
+# --------------------------------------------------------------------------- #
+def test_load_env_key_env_priority(monkeypatch, tmp_path):
+    import cli as cli_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    env_dir = tmp_path / ".hermes"
+    env_dir.mkdir()
+    env_file = env_dir / ".env"
+    env_file.write_text("OPENROUTER_API_KEY=file-value\n")
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-value")
+    assert cli_mod._load_env_key("OPENROUTER_API_KEY") == "env-value"
+
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    assert cli_mod._load_env_key("OPENROUTER_API_KEY") == "file-value"
+
+    env_file.unlink()
+    assert cli_mod._load_env_key("OPENROUTER_API_KEY") is None

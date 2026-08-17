@@ -103,12 +103,10 @@ def _handler(args: dict, **kw) -> str:
         ctx = vt.analyze(str(p), question=question, model=model, max_objects=max_objects)
     except Exception as e:
         # fail-closed: do not inject empty/fabricated context; hand the error
-        # to the agent so it can decide whether to fall back to vision_analyze.
-        return (
-            "<vision-context>\n"
-            f'{{"status": "unavailable", "error": "vision parse failed: {e}"}}\n'
-            "</vision-context>"
-        )
+        # to the agent as plain text (aligned with MCP/dsh) so it can decide
+        # whether to fall back to vision_analyze. The Bridge layer must not
+        # fabricate <vision-context> markup on failure.
+        return f"vision unavailable (reason: vision parse failed: {e})"
 
     # Return only <vision-context>, no redundant copy; annotate the source
     # model so the agent can judge reliability.

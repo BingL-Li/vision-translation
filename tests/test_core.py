@@ -161,3 +161,117 @@ def test_analyze_ok_path(monkeypatch, tmp_path):
     ctx = vt.analyze(str(img), question="q")
     assert "<vision-context>" in ctx
     assert "v1" in ctx and "box" in ctx
+
+# --------------------------------------------------------------------------- #
+# P0-1: normalize_bbox zero-area check must run after clamp + round
+# --------------------------------------------------------------------------- #
+def test_normalize_bbox_clamped_zero_area_dropped():
+    assert vt.normalize_bbox({"bbox": [1000, 0, 1001, 1000]}) is None
+
+
+def test_normalize_bbox_native_zero_area_dropped():
+    assert vt.normalize_bbox({"bbox": [1000, 0, 1000, 1000]}) is None
+
+
+def test_normalize_bbox_clamped_but_nonzero_kept():
+    warnings = []
+    assert vt.normalize_bbox({"bbox": [-5, 0, 5, 10]}, warnings=warnings) == [0, 0, 5, 10]
+    assert warnings
+
+
+# --------------------------------------------------------------------------- #
+# P0-2: build_primitives must preserve confidence 0
+# --------------------------------------------------------------------------- #
+def test_build_primitives_preserves_confidence_zero():
+    prims = vt.build_primitives({"objects": [
+        {"label": "x", "bbox": [0, 0, 100, 100], "confidence": 0},
+    ]})
+    assert prims[0]["confidence"] == 0.0
+
+
+def test_build_primitives_confidence_default_and_invalid():
+    missing = vt.build_primitives({"objects": [
+        {"label": "x", "bbox": [0, 0, 100, 100]},
+    ]})
+    assert missing[0]["confidence"] == 1.0
+    invalid = vt.build_primitives({"objects": [
+        {"label": "x", "bbox": [0, 0, 100, 100], "confidence": "high"},
+    ]})
+    assert invalid[0]["confidence"] == 1.0
+
+
+def test_build_primitives_confidence_clamped():
+    prims = vt.build_primitives({"objects": [
+        {"label": "x", "bbox": [0, 0, 100, 100], "confidence": -0.2},
+    ]})
+    assert prims[0]["confidence"] == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# P0-3: identical boxes must never produce mutual inside relations
+# --------------------------------------------------------------------------- #
+def test_relations_identical_boxes_single_inside():
+    prims = [
+        {"id": "v1", "box": [0, 0, 100, 100]},
+        {"id": "v2", "box": [0, 0, 100, 100]},
+    ]
+    rels = vt.derive_spatial_relations(prims)
+    inside = [r for r in rels if r["predicate"] == "inside"]
+    assert len(inside) == 1
+    assert (inside[0]["subject"], inside[0]["object"]) != ("v2", "v1")
+
+
+def test_relations_true_containment_is_directional():
+    prims = [
+        {"id": "v1", "box": [0, 0, 1000, 1000]},
+        {"id": "v2", "box": [100, 100, 300, 300]},
+    ]
+    rels = vt.derive_spatial_relations(prims)
+    inside = [r for r in rels if r["predicate"] == "inside"]
+    assert any(r["subject"] == "v2" and r["object"] == "v1" for r in inside)
+
+
+# --------------------------------------------------------------------------- #
+# P1-4: render_vision_context must enforce a hard character budget
+# --------------------------------------------------------------------------- #
+def test_render_budget_hard_cap_with_many_primitives():
+    prims = []
+    for r in range(4):
+        for c in range(4):
+            i = r * 4 + c + 1
+            x1, y1 = c * 80 + 5, r * 80 + 5
+            prims.append({
+                "id": f"v{i}", "label": f"object-{i}",
+                "box": [x1, y1, x1 + 50, y1 + 50],
+                "confidence": 0.5 + i / 100.0, "grounding": "prompted",
+            })
+    rels = vt.derive_spatial_relations(prims)
+    assert len(rels) > 10  # this is the over-budget core case from the review
+    ctx = vt.render_vision_context(
+        {"summary": "x" * 5000, "scene": "y" * 5000, "ocr": ["z" * 5000]},
+        prims, rels, budget=2000,
+    )
+    assert len(ctx) <= 2000
+    assert "<visual-primitives" in ctx
+
+
+def test_render_empty_context_is_valid():
+    ctx = vt.render_vision_context({}, [], [])
+    assert "<vision-context>" in ctx
+    assert "</vision-context>" in ctx
+    assert "<visual-primitives" not in ctx
+    assert "<visual-relations" not in ctx
+
+
+def test_render_single_primitive_not_truncated():
+    prims = [{"id": "v1", "label": "cat", "box": [0, 0, 100, 100],
+              "confidence": 0.9, "grounding": "prompted"}]
+    ctx = vt.render_vision_context({"summary": "scene"}, prims, [])
+    assert "v1" in ctx and "cat" in ctx and "image_1: scene" in ctx
+
+
+def test_render_budget_is_configurable():
+    prims = [{"id": "v1", "label": "cat", "box": [0, 0, 100, 100],
+              "confidence": 0.9, "grounding": "prompted"}]
+    ctx = vt.render_vision_context({"summary": "x" * 5000}, prims, [], budget=300)
+    assert len(ctx) <= 300
