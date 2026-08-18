@@ -184,22 +184,30 @@ hermes plugins list
 hermes tools list
 ```
 
-**Upgrading the Hermes plugin** — the Hermes copy is a git checkout and is
-refreshed by git, never by copying files. Run the release-loop script for the
-Hermes leg, then restart Hermes:
+**Upgrading the Hermes plugin** — Hermes manages the plugin natively through
+its own CLI. The only commands needed are (no custom scripts):
 
 ```bash
-./adapters/hermes/upgrade.sh             # git fetch + checkout -B main origin/main
-hermes gateway restart                   # in-process import loads the new code
+hermes plugins update vision-translation   # official: git pull + metadata + pycache + capability re-consent
+hermes gateway restart                     # in-process import loads the new code
 ```
 
-**升级 Hermes 插件** — Hermes 副本是 git 检出，只能通过 git 刷新，绝不能文件
-拷贝。运行发布循环中 Hermes 一侧的脚本，然后重启 Hermes：
+**升级 Hermes 插件** — Hermes 通过自己的 CLI 原生管理插件，只需官方命令
+（无需自定义脚本）：
 
 ```bash
-./adapters/hermes/upgrade.sh             # git fetch + checkout -B main origin/main
-hermes gateway restart                   # 进程内 import 加载新代码
+hermes plugins update vision-translation   # 官方：git pull + 元数据 + 清缓存 + 能力重授权
+hermes gateway restart                     # 进程内 import 加载新代码
 ```
+
+> Note: the plugin must first be installed through `hermes plugins install
+> BingL-Li/vision-translation` (or the manual git clone equivalent) so the
+> install metadata exists; `hermes plugins update` refuses to update plugins
+> with no git remote or no metadata record.
+>
+> 说明：插件须先经 `hermes plugins install BingL-Li/vision-translation`
+> 安装（或等价的手动 git clone）使安装元数据存在；`hermes plugins update`
+> 对没有 git remote 或没有元数据记录的插件会拒绝更新。
 
 The `vision_translate` tool in the `vision_translation` toolset accepts:
 

@@ -123,26 +123,30 @@ This is intentionally a low-barrier contribution path: the community can give a 
 A release (`vX.Y.Z` tag) delivers the same Core through two independent legs.
 Run **both** — a release is not complete until every host has refreshed:
 
-| Leg | Delivery path | Refresh script | Restart required |
+| Leg | Delivery path | Refresh command | Restart required |
 |---|---|---|---|
 | npm / dsh | CI publishes `vision-translation-dsh@X.Y.Z` → `dsh plugin add` | `./adapters/dsh/upgrade.sh` | dsh (Cordis reload) |
-| git / Hermes | git history → the Hermes plugin copy (`~/.hermes/plugins/vision-translation`) | `./adapters/hermes/upgrade.sh` | Hermes (in-process import) |
+| git / Hermes | git history → the Hermes plugin copy (`~/.hermes/plugins/vision-translation`) | `hermes plugins update vision-translation` | Hermes (in-process import) |
 
-The Hermes copy is a git checkout and must be refreshed **only via git**
-(`fetch` + `checkout -B main origin/main`), never by copying files — see
+The Hermes copy is a git checkout managed natively by Hermes (`hermes plugins
+install` / `update`). Use the official update command — it pulls the same git
+history, syncs the install metadata, clears stale bytecode, copies new
+`.example` files, and re-asks for capability consent when the new version
+declares more (fail-closed). Never update by copying files — see
 [CONTRIBUTING.md](CONTRIBUTING.md#rule-host-plugin-copies-are-updated-by-git-never-by-file-copy).
-The two scripts otherwise behave identically: resolve the target, refresh,
-and remind you to restart the host so the new code actually loads.
+Both legs end with a restart reminder so the host actually loads the new code.
 
-| 交付侧 | 路径 | 刷新脚本 | 需要重启 |
+| 交付侧 | 路径 | 刷新命令 | 需要重启 |
 |---|---|---|---|
 | npm / dsh | CI 发布 `vision-translation-dsh@X.Y.Z` → `dsh plugin add` | `./adapters/dsh/upgrade.sh` | dsh（Cordis 重载） |
-| git / Hermes | git 历史 → Hermes 插件副本（`~/.hermes/plugins/vision-translation`） | `./adapters/hermes/upgrade.sh` | Hermes（进程内 import） |
+| git / Hermes | git 历史 → Hermes 插件副本（`~/.hermes/plugins/vision-translation`） | `hermes plugins update vision-translation` | Hermes（进程内 import） |
 
-Hermes 副本是 git 检出，只能通过 git 刷新（`fetch` + `checkout -B main
-origin/main`），绝不能文件拷贝——见
+Hermes 副本是 git 检出，由 Hermes 原生管理（`hermes plugins install` /
+`update`）。请使用官方 update 命令——它拉取同一份 git 历史、同步安装元数据、
+清理过期字节码、拷贝新的 `.example` 文件，并在新版本声明更多能力时重新征求
+授权（fail-closed）。绝不能文件拷贝——见
 [CONTRIBUTING.md](CONTRIBUTING.md#rule-host-plugin-copies-are-updated-by-git-never-by-file-copy)。
-两个脚本行为一致：定位目标、刷新、提示重启宿主让新代码真正加载。
+两条交付侧都以重启提示结束，确保宿主真正加载新代码。
 
 ## Choosing the native dsh Bridge
 

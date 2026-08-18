@@ -122,8 +122,9 @@ A file copy silently drops local divergence, breaks the link to the upstream
 history, and turns the next `git pull` into a conflict — the copy then drifts
 from the release, and bugs fixed upstream silently come back on that host.
 This convention is enforced by the release loop: `adapters/dsh/upgrade.sh`
-covers the npm/dsh delivery leg and `adapters/hermes/upgrade.sh` covers the
-git/Hermes delivery leg. Both must run for a release to reach every host.
+covers the npm/dsh delivery leg, and the git/Hermes delivery leg uses the
+native Hermes command `hermes plugins update vision-translation` (which pulls
+the same git history). Both must run for a release to reach every host.
 
 宿主直接以插件形式安装本仓库时（例如 Hermes 的
 `~/.hermes/plugins/vision-translation`），保留的是仓库的 **git clone**，只能
@@ -137,9 +138,9 @@ git checkout -B main origin/main
 绝不要从别的工作区用文件拷贝（`cp -r`、rsync 等）同步。文件拷贝会静默丢弃
 本地差异、切断与上游历史的联系，并让下一次 `git pull` 变成冲突——副本从此
 与发布版本脱节，已在上游修复的 bug 会在该宿主静默复发。发布循环强制执行此
-约定：`adapters/dsh/upgrade.sh` 负责 npm/dsh 交付侧，
-`adapters/hermes/upgrade.sh` 负责 git/Hermes 交付侧，两侧都执行一次，发布
-才算送达所有宿主。
+约定：`adapters/dsh/upgrade.sh` 负责 npm/dsh 交付侧，git/Hermes 交付侧使用
+Hermes 原生命令 `hermes plugins update vision-translation`（拉取同一份 git
+历史）。两侧都执行一次，发布才算送达所有宿主。
 
 ## Add a Bridge
 
