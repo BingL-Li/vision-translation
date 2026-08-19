@@ -11,6 +11,10 @@ Agent ──image/question──▶ Bridge ──call──▶ vision_translatio
 Agent ◀─context/status── Bridge ◀──────── <vision-context>
 ```
 
+> **Interactive diagram:** [bridge-ecosystem-delivery-legs.html](docs/architecture/diagrams/bridge-ecosystem-delivery-legs.html) shows the Bridge ecosystem (Hermes / MCP / dsh native), the two runtime paths (in-process import and `cli.py` spawn), and the two release delivery legs. The ASCII fallback above still renders on GitHub.
+
+> **交互图：** [bridge-ecosystem-delivery-legs.html](docs/architecture/diagrams/bridge-ecosystem-delivery-legs.html) 展示 Bridge 生态（Hermes / MCP / dsh 原生）、两条运行时路径（进程内导入与 `cli.py` spawn）以及两条发布交付侧。上面的 ASCII 兜底图仍可在 GitHub 渲染。
+
 A Bridge handles host-specific tool registration, attachments, process lifetime, protocol, and status mapping. Prompts, VLM requests, tolerant JSON parsing, coordinate normalization, geometric relations, and context rendering always remain in the single Core.
 
 Bridge 只处理宿主特有的工具注册、附件、进程生命周期、协议和状态映射。提示词、VLM 请求、容错 JSON 解析、坐标归一化、几何关系和上下文渲染始终由唯一 Core 负责。

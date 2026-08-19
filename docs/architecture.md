@@ -6,6 +6,10 @@ One stable Core supports any Agent through a dedicated Bridge.
 
 一个稳定的 Core 通过各自的 Bridge 支持任意 Agent。
 
+> **Interactive diagram:** [vision-translation-architecture.html](diagrams/vision-translation-architecture.html) is the generated Archify HTML (pan/zoom, theme switching, export). The Mermaid fallback below renders on GitHub, where HTML files are not embedded.
+
+> **交互图：** [vision-translation-architecture.html](diagrams/vision-translation-architecture.html) 是 Archify 生成的 HTML 图（支持平移/缩放、主题切换与导出）。GitHub 不会内嵌 HTML，因此保留下面的 Mermaid 兜底图。
+
 ```mermaid
 flowchart LR
   A["Any Agent<br/>Hermes · dsh · Claude Code"]
@@ -41,9 +45,9 @@ flowchart LR
 | Core | VLM JSON → 基元 → 几何 → 文本 |
 | VLM | 查看图片并返回结构化 JSON |
 
-The Core pipeline is: `image → VLM JSON → norm-1000 xyxy primitives → geometric relations → <vision-context>`.
+The Core pipeline is: `image → VLM JSON → norm-1000 xyxy primitives → geometric relations → <vision-context>`. See [vision-context-roundtrip.html](diagrams/vision-context-roundtrip.html) for the interactive sequence view.
 
-Core 的内部流水线是：`image → VLM JSON → 规范化的 norm-1000 xyxy 基元 → 几何关系 → <vision-context>`。
+Core 的内部流水线是：`image → VLM JSON → 规范化的 norm-1000 xyxy 基元 → 几何关系 → <vision-context>`。交互式序列图见 [vision-context-roundtrip.html](diagrams/vision-context-roundtrip.html)。
 
 > **Rule:** Core logic lives only in the Core. Adding an Agent means adding a Bridge, never changing the Core.
 

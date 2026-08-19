@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "vision-context Round Trip",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1180,
+      712
+    ]
+  },
+  "participants": [
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Any Agent",
+      "sublabel": "Hermes · dsh · MCP Host"
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "Bridge",
+      "sublabel": "one per Agent · thin integration"
+    },
+    {
+      "id": "core",
+      "type": "backend",
+      "label": "Single Core",
+      "sublabel": "vision_translation.py"
+    },
+    {
+      "id": "vlm",
+      "type": "cloud",
+      "label": "Auxiliary VLM",
+      "sublabel": "OpenAI-compatible endpoint"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 296,
+      "label": "Request + VLM call"
+    },
+    {
+      "from": 312,
+      "to": 470,
+      "label": "Translate + return"
+    }
+  ],
+  "messages": [
+    {
+      "id": "agent-to-bridge",
+      "from": "agent",
+      "to": "bridge",
+      "y": 180,
+      "label": "image + question",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bridge-to-core",
+      "from": "bridge",
+      "to": "core",
+      "y": 222,
+      "label": "invoke Core",
+      "note": "in-process import (Hermes / MCP) or cli.py spawn (cross-language)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "core-to-vlm",
+      "from": "core",
+      "to": "vlm",
+      "y": 264,
+      "label": "POST /chat/completions",
+      "note": "image data URL · JSON-mode prompt",
+      "variant": "default"
+    },
+    {
+      "id": "vlm-to-core",
+      "from": "vlm",
+      "to": "core",
+      "y": 306,
+      "label": "structured JSON",
+      "variant": "return"
+    },
+    {
+      "id": "core-to-bridge",
+      "from": "core",
+      "to": "bridge",
+      "y": 390,
+      "label": "<vision-context>",
+      "variant": "return"
+    },
+    {
+      "id": "bridge-to-agent",
+      "from": "bridge",
+      "to": "agent",
+      "y": 432,
+      "label": "vision-context + status",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "agent",
+      "from": 174,
+      "to": 440,
+      "type": "external"
+    },
+    {
+      "participant": "bridge",
+      "from": 216,
+      "to": 438,
+      "type": "backend"
+    },
+    {
+      "participant": "core",
+      "from": 216,
+      "to": 396,
+      "type": "backend"
+    },
+    {
+      "participant": "vlm",
+      "from": 258,
+      "to": 312,
+      "type": "cloud"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Round trip",
+      "items": [
+        "Agent sends image + question through a Bridge",
+        "The Core calls the auxiliary VLM and receives structured JSON",
+        "The final <vision-context> returns through the same Bridge"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Core pipeline",
+      "items": [
+        "parse → norm-1000 xyxy primitives → geometric relations → <vision-context>",
+        "Fail-closed after three invalid VLM outputs",
+        "The Core stays import-pure; tests mock HTTP at the VLM boundary"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Bridge mapping",
+      "items": [
+        "Python Bridges import the Core directly",
+        "Other languages spawn cli.py and speak PROTOCOL v1",
+        "The Bridge maps ok / unavailable / error to host results"
+      ]
+    }
+  ]
+}

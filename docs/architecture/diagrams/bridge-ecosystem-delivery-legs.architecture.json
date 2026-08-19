@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Bridge Ecosystem and Delivery Legs",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Any Agent",
+      "sublabel": "Hermes · dsh · MCP Host",
+      "pos": [
+        10,
+        240
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "git-leg",
+      "type": "cloud",
+      "label": "git / Hermes leg",
+      "sublabel": "hermes plugins update",
+      "pos": [
+        270,
+        20
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "hermes",
+      "type": "backend",
+      "label": "Hermes Bridge",
+      "sublabel": "__init__.py · in-process import",
+      "pos": [
+        280,
+        120
+      ],
+      "size": [
+        160,
+        56
+      ],
+      "tag": "official"
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "MCP Bridge",
+      "sublabel": "adapters/mcp/ · imports Core",
+      "pos": [
+        280,
+        240
+      ],
+      "size": [
+        160,
+        56
+      ],
+      "tag": "official"
+    },
+    {
+      "id": "dsh",
+      "type": "backend",
+      "label": "dsh Native Bridge",
+      "sublabel": "adapters/dsh/ · Cordis plugin",
+      "pos": [
+        280,
+        360
+      ],
+      "size": [
+        160,
+        56
+      ],
+      "tag": "official"
+    },
+    {
+      "id": "npm-leg",
+      "type": "cloud",
+      "label": "npm / dsh leg",
+      "sublabel": "vision-translation-dsh@X.Y.Z",
+      "pos": [
+        270,
+        470
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "cli.py",
+      "sublabel": "PROTOCOL v1 boundary",
+      "pos": [
+        580,
+        360
+      ],
+      "size": [
+        170,
+        56
+      ]
+    },
+    {
+      "id": "core",
+      "type": "backend",
+      "label": "Single Core",
+      "sublabel": "vision_translation.py",
+      "pos": [
+        580,
+        240
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "tag": "import-pure"
+    },
+    {
+      "id": "vlm",
+      "type": "cloud",
+      "label": "Auxiliary VLM",
+      "sublabel": "OpenAI-compatible endpoint",
+      "pos": [
+        860,
+        240
+      ],
+      "size": [
+        160,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Bridge ecosystem",
+      "wraps": [
+        "hermes",
+        "mcp",
+        "dsh",
+        "cli"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Single Core",
+      "wraps": [
+        "core",
+        "vlm"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "git-to-hermes",
+      "from": "git-leg",
+      "to": "hermes",
+      "label": "git history",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "npm-to-dsh",
+      "from": "npm-leg",
+      "to": "dsh",
+      "label": "npm publish",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "agent-to-hermes",
+      "from": "agent",
+      "to": "hermes",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-to-mcp",
+      "from": "agent",
+      "to": "mcp"
+    },
+    {
+      "id": "agent-to-dsh",
+      "from": "agent",
+      "to": "dsh"
+    },
+    {
+      "id": "hermes-to-core",
+      "from": "hermes",
+      "to": "core"
+    },
+    {
+      "id": "mcp-to-core",
+      "from": "mcp",
+      "to": "core"
+    },
+    {
+      "id": "dsh-to-cli",
+      "from": "dsh",
+      "to": "cli",
+      "label": "spawn cli.py"
+    },
+    {
+      "id": "cli-to-core",
+      "from": "cli",
+      "to": "core",
+      "label": "PROTOCOL v1",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "core-to-vlm",
+      "from": "core",
+      "to": "vlm",
+      "label": "image → JSON",
+      "variant": "dashed",
+      "labelDy": -27
+    },
+    {
+      "id": "vlm-to-core",
+      "from": "vlm",
+      "to": "core",
+      "label": "structured JSON",
+      "variant": "dashed",
+      "labelDy": 35
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One Core, many Bridges",
+      "items": [
+        "Every Bridge receives image + question from its Agent",
+        "Hermes and MCP import the Core in-process",
+        "dsh native spawns cli.py with a Base64 stdin envelope"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Two delivery legs",
+      "items": [
+        "npm leg: CI publishes vision-translation-dsh@X.Y.Z → dsh plugin add",
+        "git leg: hermes plugins update refreshes the Hermes plugin copy",
+        "A release is complete only after both legs refresh"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Bridge rules",
+      "items": [
+        "Bridges never copy Core logic",
+        "stdout stays pure JSON; logs go to stderr",
+        "status ok / unavailable / error maps to host results"
+      ]
+    }
+  ]
+}
