@@ -113,7 +113,16 @@ def _call(model: str, messages: list, *, json_mode: bool = False, retries: int =
         try:
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 return json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError) as e:
+        except urllib.error.HTTPError as e:
+            # Retry only transient HTTP failures. 4xx (except 429) means the
+            # request is bad or unauthorized; retrying it just delays the
+            # fail-closed result.
+            last_err = e
+            if e.code != 429 and e.code < 500:
+                break
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+        except (urllib.error.URLError, json.JSONDecodeError) as e:
             last_err = e
             if attempt < retries:
                 time.sleep(1.5 * (attempt + 1))
@@ -149,6 +158,17 @@ _EMPTY_CTX = {
     "primitives": [], "relations": [], "vlm_json": {},
     "grounding": GROUNDING, "coord": COORD, "box_order": BOX_ORDER,
 }
+
+
+def _clean_text(value: Any) -> str:
+    """Keep free-form text on one line and stop it from closing the
+    <vision-context> block (OCR / labels / questions are untrusted input).
+    """
+    return (str(value)
+            .replace("\r", " ")
+            .replace("\n", " ")
+            .replace("<vision-context>", "< vision-context>")
+            .replace("</vision-context>", "< /vision-context>"))
 
 
 # --------------------------------------------------------------------------- #
@@ -235,7 +255,7 @@ def build_primitives(vlm_json: dict, max_objects: int = MAX_PRIMITIVES,
             conf = 1.0
         conf = max(0.0, min(1.0, conf))
         primitives.append({
-            "id": f"v{i + 1}", "label": str(label)[:96], "box": box,
+            "id": f"v{i + 1}", "label": _clean_text(str(label)[:96]), "box": box,
             "confidence": conf, "grounding": GROUNDING,
         })
     primitives.sort(key=lambda p: p["confidence"], reverse=True)
@@ -339,12 +359,12 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
     be no longer than ``budget`` characters whenever ``budget`` can cover the
     fixed wrapper itself.
     """
-    note = (vlm_json.get("summary") or "").strip()
-    scene = (vlm_json.get("scene") or "").strip()
+    note = _clean_text((vlm_json.get("summary") or "").strip())
+    scene = _clean_text((vlm_json.get("scene") or "").strip())
     ocr = vlm_json.get("ocr") or vlm_json.get("visible_text") or []
     if isinstance(ocr, str):
         ocr = [ocr]
-    ocr_str = "; ".join(str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in ocr)
+    ocr_str = "; ".join(_clean_text(x.get("text", x)) if isinstance(x, dict) else _clean_text(x) for x in ocr)
 
     prefix = "<vision-context>\n"
     suffix = "\n</vision-context>"
@@ -353,7 +373,7 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
 
     def _prim_line(p: dict) -> str:
         bx = f"[{p['box'][0]}, {p['box'][1]}, {p['box'][2]}, {p['box'][3]}]"
-        return (f"- {p['id']} | type: box | box: {bx} | ref: {p['label']} "
+        return (f"- {p['id']} | type: box | box: {bx} | ref: {_clean_text(p['label'])} "
                 f"| confidence: {p['confidence']} | grounding: {GROUNDING}")
 
     def _rel_line(r: dict) -> str:
@@ -406,7 +426,7 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
     if ocr_str:
         prose_lines.append(f"visible_text: {ocr_str}")
     if warnings:
-        prose_lines.append("vision_warnings: " + "; ".join(warnings))
+        prose_lines.append("vision_warnings: " + "; ".join(_clean_text(w) for w in warnings))
     prose = "\n".join(prose_lines)
 
     # 4) question has the lowest priority in the budget.
@@ -414,7 +434,7 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
     if prose:
         trail_lines.append(prose)
     if question:
-        trail_lines.append(f"user_request: {question}")
+        trail_lines.append(f"user_request: {_clean_text(question)}")
     trail = "\n".join(trail_lines)
 
     body = core
@@ -449,9 +469,12 @@ def render_vision_context(vlm_json: dict, prims: List[dict], rels: List[dict],
 # Main entry: analyze(path, question=None) -> <vision-context> text
 # Raises on failure (the caller decides the fallback strategy).
 # --------------------------------------------------------------------------- #
-def analyze(image_path: str, question: str = "", model: str = DEFAULT_VLM_MODEL,
+def analyze(image_path: str, question: str = "", model: str = "",
             max_objects: int = MAX_PRIMITIVES) -> str:
-    model = os.environ.get("VISION_TRANSLATE_VLM") or model
+    # Explicit caller model wins; env only fills the gap for direct library
+    # users. Adapters already resolve VISION_TRANSLATE_VLM themselves, and the
+    # CLI echoes the resolved value — core must not silently override it.
+    model = model or os.environ.get("VISION_TRANSLATE_VLM") or DEFAULT_VLM_MODEL
     data_url = image_to_data_url(image_path)
     prompt = (
         "你是视觉 grounding 引擎。请严格分析图片并 ONLY 返回合法 JSON，不要任何额外文字。\n"

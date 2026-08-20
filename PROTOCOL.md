@@ -27,7 +27,7 @@ Every response includes:
 每个响应都包含：
 
 ```json
-{"protocol": 1, "core_version": "0.2.0", "...": "..."}
+{"protocol": 1, "core_version": "0.2.2", "...": "..."}
 ```
 
 ## 2. Three statuses
@@ -43,7 +43,7 @@ Visual context was generated successfully and the exit code is 0.
 ```json
 {
   "protocol": 1,
-  "core_version": "0.2.0",
+  "core_version": "0.2.2",
   "status": "ok",
   "context": "<vision-context>…</vision-context>",
   "model": "xiaomi/mimo-v2.5"
@@ -59,7 +59,7 @@ The protocol completed normally, but reliable visual context could not be produc
 ```json
 {
   "protocol": 1,
-  "core_version": "0.2.0",
+  "core_version": "0.2.2",
   "status": "unavailable",
   "unavailable": {"reason": "no_api_key"}
 }
@@ -100,7 +100,7 @@ The call is invalid or the CLI encountered an internal error; the exit code is n
 ```json
 {
   "protocol": 1,
-  "core_version": "0.2.0",
+  "core_version": "0.2.2",
   "status": "error",
   "error": {"code": "usage", "message": "human-readable detail"}
 }
@@ -215,7 +215,7 @@ python cli.py --self-check
 ```json
 {
   "protocol": 1,
-  "core_version": "0.2.0",
+  "core_version": "0.2.2",
   "status": "ok",
   "checks": {
     "openrouter_key": true,
@@ -240,9 +240,9 @@ python cli.py --protocol-version
 ```json
 {
   "protocol": 1,
-  "core_version": "0.2.0",
+  "core_version": "0.2.2",
   "status": "ok",
-  "cli": "0.2.0"
+  "cli": "0.2.2"
 }
 ```
 
