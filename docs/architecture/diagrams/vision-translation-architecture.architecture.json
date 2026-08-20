@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "vision-translation Architecture",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Any Agent",
+      "sublabel": "Hermes · dsh · Claude Code",
+      "pos": [
+        20,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "Bridge",
+      "sublabel": "one per Agent · thin integration",
+      "pos": [
+        270,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "cli.py",
+      "sublabel": "cross-language boundary · PROTOCOL v1",
+      "pos": [
+        260,
+        440
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "core",
+      "type": "backend",
+      "label": "Single Core",
+      "sublabel": "vision_translation.py",
+      "pos": [
+        560,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "tag": "import-pure"
+    },
+    {
+      "id": "vlm",
+      "type": "cloud",
+      "label": "Auxiliary VLM",
+      "sublabel": "OpenAI-compatible endpoint",
+      "pos": [
+        820,
+        300
+      ],
+      "size": [
+        180,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "vision-translation",
+      "wraps": [
+        "bridge",
+        "cli",
+        "core",
+        "vlm"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "agent-to-bridge",
+      "from": "agent",
+      "to": "bridge",
+      "label": "image + question",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bridge-to-core",
+      "from": "bridge",
+      "to": "core",
+      "label": "in-process import",
+      "labelDy": -27
+    },
+    {
+      "id": "bridge-to-cli",
+      "from": "bridge",
+      "to": "cli",
+      "label": "spawn (cross-language / isolated process)",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "cli-to-core",
+      "from": "cli",
+      "to": "core",
+      "label": "PROTOCOL v1",
+      "toSide": "bottom"
+    },
+    {
+      "id": "core-to-vlm",
+      "from": "core",
+      "to": "vlm",
+      "label": "image → JSON",
+      "variant": "dashed"
+    },
+    {
+      "id": "vlm-to-core",
+      "from": "vlm",
+      "to": "core",
+      "label": "structured JSON",
+      "variant": "dashed",
+      "labelDy": 55
+    },
+    {
+      "id": "core-to-bridge",
+      "from": "core",
+      "to": "bridge",
+      "label": "vision-context",
+      "variant": "dashed",
+      "labelDy": 55
+    },
+    {
+      "id": "bridge-to-agent",
+      "from": "bridge",
+      "to": "agent",
+      "label": "vision-context",
+      "variant": "dashed",
+      "labelDy": 55
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Round trip",
+      "items": [
+        "Agent sends image + question through a Bridge",
+        "Core calls the auxiliary VLM on demand",
+        "<vision-context> returns through the same Bridge"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "One Core",
+      "items": [
+        "Bridges never duplicate prompts, parsing, normalization, relations, or VLM calls",
+        "Python Bridges import the Core; other languages spawn cli.py"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Boundary",
+      "items": [
+        "cli.py speaks PROTOCOL v1 and emits exactly one JSON object on stdout",
+        "The Core stays import-pure and testable"
+      ]
+    }
+  ]
+}

@@ -16,6 +16,10 @@ The name intentionally echoes DeepSeek's paper [*Thinking with Visual Primitives
 
 ## 架构：一个 Core，任意 Agent，各自的 Bridge
 
+> **Interactive diagrams:** open [vision-translation-architecture.html](docs/architecture/diagrams/vision-translation-architecture.html) for the overall layered architecture, or [vision-context-roundtrip.html](docs/architecture/diagrams/vision-context-roundtrip.html) for the image + question → `<vision-context>` round trip. The Mermaid fallback below renders directly on GitHub.
+
+> **交互图：** 用浏览器打开 [vision-translation-architecture.html](docs/architecture/diagrams/vision-translation-architecture.html) 查看整体分层架构，或打开 [vision-context-roundtrip.html](docs/architecture/diagrams/vision-context-roundtrip.html) 查看 image + question → `<vision-context>` 往返。下面的 Mermaid 兜底图可直接在 GitHub 渲染。
+
 ```mermaid
 flowchart LR
   A["Any Agent<br/>Hermes · dsh · Claude Code"]
@@ -278,6 +282,10 @@ Implement the host integration, add a README and offline smoke test, register it
 
 ## 数据流
 
+> **Diagram:** [vision-context-roundtrip.html](docs/architecture/diagrams/vision-context-roundtrip.html) shows this round trip as an interactive sequence diagram.
+
+> **图示：** [vision-context-roundtrip.html](docs/architecture/diagrams/vision-context-roundtrip.html) 以交互式序列图展示这一往返流程。
+
 1. The Bridge receives an image path, question, and optional parameters from the Agent.
 2. The Core applies EXIF orientation and, when Pillow is available, limits the long edge to 1568 pixels.
 3. The Core sends the image to the configured OpenAI-compatible auxiliary VLM endpoint (default model `xiaomi/mimo-v2.5` on OpenRouter; override with `VISION_TRANSLATE_VLM`, `VISION_TRANSLATE_BASE_URL`, `VISION_TRANSLATE_API_KEY`).
@@ -346,6 +354,8 @@ visible_text: Submit
 | `tests/` | Offline Core and protocol tests |
 | `PROTOCOL.md` | Single CLI protocol specification |
 | `ADAPTERS.md` | Bridge registry and ecosystem rules |
+| `docs/architecture.md` | Dedicated architecture doc (archify diagrams + Mermaid fallback) |
+| `docs/architecture/diagrams/` | Archify diagram HTML files and their JSON specs |
 | `CONTRIBUTING.md` | Contribution process and review boundaries |
 | `CHANGELOG.md` | Version history |
 
@@ -360,6 +370,8 @@ visible_text: Submit
 | `tests/` | 离线 Core 与协议测试 |
 | `PROTOCOL.md` | CLI 协议唯一规范 |
 | `ADAPTERS.md` | Bridge 注册表与生态规则 |
+| `docs/architecture.md` | 专用架构文档（archify 图 + Mermaid 兜底图） |
+| `docs/architecture/diagrams/` | Archify 生成的 HTML 图与 JSON spec |
 | `CONTRIBUTING.md` | 贡献流程与审查边界 |
 | `CHANGELOG.md` | 版本历史 |
 
