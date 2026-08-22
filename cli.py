@@ -31,7 +31,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import vision_translation as vt  # the one and only core; import-pure
 
@@ -165,14 +165,18 @@ def _read_envelope(argv: List[str]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _resolve_image_path(envelope: Optional[Dict[str, Any]]) -> Optional[Path]:
-    """argv path first, then stdin envelope path/b64. Returns None when the
-    envelope is present but has no usable image (caller reports usage)."""
+def _resolve_image_path(envelope: Optional[Dict[str, Any]]) -> Tuple[Optional[Path], Optional[Path]]:
+    """Resolve an envelope image into a filesystem path.
+
+    Returns ``(image_path, temp_path_to_cleanup)``. ``temp_path_to_cleanup``
+    is set only for stdin Base64 images, which are written to a temporary file
+    so the core can read them; the caller is responsible for unlinking it.
+    """
     img = (envelope or {}).get("image") or {}
     if not isinstance(img, dict):
-        return None
+        return None, None
     if img.get("path"):
-        return Path(str(img["path"])).expanduser()
+        return Path(str(img["path"])).expanduser(), None
     if img.get("b64") is not None:
         try:
             raw = base64.b64decode(str(img["b64"]), validate=True)
@@ -182,10 +186,17 @@ def _resolve_image_path(envelope: Optional[Dict[str, Any]]) -> Optional[Path]:
             raise ValueError("invalid base64 image data: empty payload")
         suffix = str(img.get("ext") or ".jpg")
         fd, tmp = tempfile.mkstemp(prefix="vt-", suffix=suffix)
-        with os.fdopen(fd, "wb") as f:
-            f.write(raw)
-        return Path(tmp)
-    return None
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(raw)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return Path(tmp), Path(tmp)
+    return None, None
 
 
 # --------------------------------------------------------------------------- #
@@ -224,6 +235,7 @@ def _cmd_protocol_version() -> int:
 def _cmd_translate(argv: List[str], envelope: Optional[Dict[str, Any]]) -> int:
     # --- inputs ----------------------------------------------------------- #
     image_path: Optional[Path] = None
+    temp_image: Optional[Path] = None
     question = ""
     options: Dict[str, Any] = {}
 
@@ -239,7 +251,7 @@ def _cmd_translate(argv: List[str], envelope: Optional[Dict[str, Any]]) -> int:
         if not isinstance(options, dict):
             options = {}
         try:
-            image_path = _resolve_image_path(envelope)
+            image_path, temp_image = _resolve_image_path(envelope)
         except Exception as e:  # noqa: BLE001 — protocol boundary: classify, never crash
             cls = _classify(e)
             if cls["status"] == "unavailable":
@@ -276,6 +288,12 @@ def _cmd_translate(argv: List[str], envelope: Optional[Dict[str, Any]]) -> int:
         payload = {**_base(), "status": "error",
                    "error": {"code": cls["code"], "message": cls["message"]}}
         return _emit(payload, 1)
+    finally:
+        if temp_image is not None:
+            try:
+                temp_image.unlink(missing_ok=True)
+            except OSError:
+                pass  # best-effort cleanup; the CLI is about to exit anyway
 
     return _emit({**_base(), "status": "ok",
                   "context": ctx, "model": model}, 0)

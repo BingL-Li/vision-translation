@@ -35,6 +35,11 @@ try:
 except ImportError:  # pragma: no cover - bare top-level import (pytest)
     import vision_translation as vt  # type: ignore[no-redef]
 
+try:
+    from . import cli as _cli
+except ImportError:  # pragma: no cover - bare top-level import (pytest)
+    import cli as _cli  # type: ignore[no-redef]
+
 TOOL_NAME = "vision_translate"
 TOOLSET = "vision_translation"
 EMOJI = "🧭"
@@ -95,8 +100,11 @@ def _handler(args: dict, **kw) -> str:
     except OSError as e:
         return f'{{"success": false, "error": "cannot access image: {e}"}}'
 
-    # Model: env override first, else the verified default (never hardcode
-    # anything beyond the user's configuration).
+    # Surface dotenv keys/base URL/model before use (same resolution order as
+    # the CLI/MCP bridges). Process env already wins inside _ensure_key.
+    _cli._ensure_key()
+
+    # Model: env first for the Hermes bridge, else the verified default.
     model = os.environ.get("VISION_TRANSLATE_VLM", vt.DEFAULT_VLM_MODEL)
 
     try:
@@ -117,8 +125,14 @@ def _handler(args: dict, **kw) -> str:
 
 
 def _check_available() -> bool:
-    """Availability gate: needs an OpenRouter key to work."""
-    return bool(os.environ.get("OPENROUTER_API_KEY"))
+    """Availability gate: needs either VLM key (process env or dotenv).
+
+    Mirrors the CLI key resolution: VISION_TRANSLATE_API_KEY first, then
+    OPENROUTER_API_KEY. Loading dotenv here keeps this gate consistent with
+    the handler, which calls _cli._ensure_key() before running the core.
+    """
+    _cli._ensure_key()
+    return bool(os.environ.get("VISION_TRANSLATE_API_KEY") or os.environ.get("OPENROUTER_API_KEY"))
 
 
 def register(ctx) -> None:
@@ -128,7 +142,7 @@ def register(ctx) -> None:
         schema=_SCHEMA,
         handler=_handler,
         check_fn=_check_available,
-        requires_env=["OPENROUTER_API_KEY"],
+        requires_env=[],  # check_fn resolves both key names + dotenv
         is_async=False,
         description=_SCHEMA["description"],
         emoji=EMOJI,

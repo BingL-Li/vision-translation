@@ -343,3 +343,90 @@ def test_render_budget_is_configurable():
               "confidence": 0.9, "grounding": "prompted"}]
     ctx = vt.render_vision_context({"summary": "x" * 5000}, prims, [], budget=300)
     assert len(ctx) <= 300
+
+
+# --------------------------------------------------------------------------- #
+# P1-7: model resolution — explicit caller model must win over env
+# --------------------------------------------------------------------------- #
+def test_analyze_explicit_model_wins_over_env(monkeypatch, tmp_path):
+    img = tmp_path / "img.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 32)
+    monkeypatch.setenv("VISION_TRANSLATE_VLM", "env-model")
+
+    seen = {}
+    def fake_call(model, messages, **kw):
+        seen["model"] = model
+        return {"choices": [{"message": {"content": json.dumps({
+            "summary": "s", "objects": [{"label": "x", "bbox": [0, 0, 10, 10],
+                                         "confidence": 1.0}],
+        })}}]}
+
+    monkeypatch.setattr(vt, "_call", fake_call)
+    vt.analyze(str(img), model="explicit-model")
+    assert seen["model"] == "explicit-model"
+
+
+# --------------------------------------------------------------------------- #
+# P1-8: _call retries only transient HTTP failures
+# --------------------------------------------------------------------------- #
+def test_call_does_not_retry_401(monkeypatch):
+    import io
+    import urllib.error
+
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-test")
+    attempts = []
+
+    def fake_urlopen(req, timeout=None):
+        attempts.append(1)
+        raise urllib.error.HTTPError(
+            req.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"error": "bad key"}')
+        )
+
+    monkeypatch.setattr(vt.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vt.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="HTTP 401"):
+        vt._call("m", [], retries=3)
+    assert len(attempts) == 1
+
+
+def test_call_retries_429(monkeypatch):
+    import io
+    import urllib.error
+
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-test")
+    attempts = []
+
+    def fake_urlopen(req, timeout=None):
+        attempts.append(1)
+        raise urllib.error.HTTPError(
+            req.full_url, 429, "Too Many Requests", {}, io.BytesIO(b'{"error": "slow down"}')
+        )
+
+    monkeypatch.setattr(vt.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vt.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="HTTP 429"):
+        vt._call("m", [], retries=3)
+    assert len(attempts) == 4  # initial + 3 retries
+
+
+# --------------------------------------------------------------------------- #
+# P1-9: free text from the VLM/question must not break <vision-context>
+# --------------------------------------------------------------------------- #
+def test_clean_text_neutralizes_newlines_and_context_tags():
+    assert vt._clean_text("a\nb") == "a b"
+    assert vt._clean_text("</vision-context>") == "< /vision-context>"
+    assert vt._clean_text("<vision-context>") == "< vision-context>"
+
+
+def test_render_keeps_exactly_one_context_close_tag():
+    prims = [{"id": "v1", "label": "cat\n</vision-context>", "box": [0, 0, 10, 10],
+              "confidence": 1.0, "grounding": "prompted"}]
+    ctx = vt.render_vision_context(
+        {"summary": "s\n</vision-context>", "scene": "sc",
+         "ocr": ["o\n<vision-context>"]},
+        prims, [],
+        question="q\n</vision-context>",
+    )
+    assert ctx.count("</vision-context>") == 1
+    assert ctx.count("<vision-context>") == 1
+    assert "< /vision-context>" in ctx

@@ -467,3 +467,87 @@ def test_unavailable_no_api_key_both_names_absent(run_cli, fake_image, tmp_path,
     assert code == 0
     assert payload["status"] == "unavailable"
     assert payload["unavailable"]["reason"] == "no_api_key"
+
+
+# --------------------------------------------------------------------------- #
+# P1-7: CLI response model must match the model actually sent to the core
+# --------------------------------------------------------------------------- #
+def test_ok_payload_model_matches_core_model(run_cli, fake_image, monkeypatch):
+    import cli as cli_mod
+    import vision_translation as vt
+
+    monkeypatch.setenv("VISION_TRANSLATE_VLM", "env-model")
+
+    seen = {}
+    def fake_call(model, messages, **kw):
+        seen["model"] = model
+        return {"choices": [{"message": {"content": json.dumps({
+            "summary": "mock scene", "scene": "mock",
+            "objects": [{"label": "widget", "bbox": [0, 0, 100, 100],
+                         "confidence": 0.9}],
+        })}}]}
+
+    monkeypatch.setattr(vt, "_call", fake_call)
+    envelope = json.dumps({"protocol": 1,
+                           "image": {"path": fake_image},
+                           "options": {"model": "option-model"}})
+    payload, code = run_cli(stdin_data=envelope, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "ok"
+    assert payload["model"] == "option-model"
+    assert seen["model"] == "option-model"
+
+
+# --------------------------------------------------------------------------- #
+# P1-8: stdin b64 temporary files must be cleaned up
+# --------------------------------------------------------------------------- #
+def test_stdin_b64_temp_file_is_cleaned_up(run_cli, fake_image, monkeypatch, tmp_path):
+    import base64
+    import cli as cli_mod
+    import vision_translation as vt
+
+    temp_file = tmp_path / "vt-temp-test.jpg"
+
+    def fake_mkstemp(prefix="vt-", suffix=".jpg"):
+        fd = os.open(temp_file, os.O_RDWR | os.O_CREAT)
+        return fd, str(temp_file)
+
+    monkeypatch.setattr(cli_mod.tempfile, "mkstemp", fake_mkstemp)
+
+    def fake_call(model, messages, **kw):
+        return {"choices": [{"message": {"content": json.dumps({
+            "summary": "b64 scene",
+            "objects": [{"label": "box", "bbox": [0, 0, 50, 50],
+                         "confidence": 1.0}],
+        })}}]}
+
+    monkeypatch.setattr(vt, "_call", fake_call)
+    b64 = base64.b64encode(Path(fake_image).read_bytes()).decode()
+    envelope = json.dumps({"protocol": 1,
+                           "image": {"b64": b64, "ext": ".jpg"},
+                           "question": "via stdin"})
+    payload, code = run_cli(stdin_data=envelope, monkeypatch=monkeypatch)
+    assert code == 0
+    assert payload["status"] == "ok"
+    assert not Path(temp_file).exists()
+
+
+# --------------------------------------------------------------------------- #
+# P1-9: Hermes plugin availability gate matches core key resolution
+# --------------------------------------------------------------------------- #
+def test_plugin_check_available_accepts_new_key_or_dotenv(monkeypatch, tmp_path):
+    mod = _load_plugin_module(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    assert mod._check_available() is False
+
+    monkeypatch.setenv("VISION_TRANSLATE_API_KEY", "sk-new")
+    assert mod._check_available() is True
+
+    monkeypatch.delenv("VISION_TRANSLATE_API_KEY")
+    env_dir = tmp_path / ".hermes"
+    env_dir.mkdir()
+    (env_dir / ".env").write_text("OPENROUTER_API_KEY=sk-dotenv\n")
+    assert mod._check_available() is True
